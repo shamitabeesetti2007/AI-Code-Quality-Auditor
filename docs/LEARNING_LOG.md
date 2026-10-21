@@ -9,8 +9,8 @@
 - Confirmed the Maven test command succeeds.
 - Added shared engineering rules and an initial API contract.
 
-## Decisions to Confirm
+## Decisions Recorded
 
-- The generated project currently uses Spring Boot 4.0.8, while the build playbook specifies Spring Boot 3.x. Confirm the intended version before finalizing the foundation.
-- The initial Flyway V1 migration is empty and already applied. Add actual schema through a new migration rather than editing V1.
-- Business API schemas must be agreed upon before implementing analysis endpoints.
+- Spring Boot 4.0.8 is retained as the project version. Verify compatibility when adding dependencies and features.
+- Flyway V1 is an empty baseline migration that has already been applied. Add the actual schema in a new migration; do not edit V1.
+- Business API request and response schemas must be agreed upon before implementing analysis endpoints.
