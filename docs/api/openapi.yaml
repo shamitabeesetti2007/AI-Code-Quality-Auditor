@@ -1,0 +1,26 @@
+﻿openapi: 3.0.3
+info:
+  title: AI Code Quality Auditor API
+  version: 1.0.0
+  description: Initial API contract. Business endpoints will be defined before implementation.
+servers:
+  - url: http://localhost:8080
+paths:
+  /actuator/health:
+    get:
+      summary: Check application health
+      operationId: getApplicationHealth
+      tags:
+        - Operations
+      responses:
+        "200":
+          description: Application health response
+          content:
+            application/vnd.spring-boot.actuator.v3+json:
+              schema:
+                type: object
+                additionalProperties: true
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
