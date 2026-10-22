@@ -1,26 +1,342 @@
-﻿openapi: 3.0.3
+﻿
+openapi: 3.0.3
 info:
   title: AI Code Quality Auditor API
   version: 1.0.0
-  description: Initial API contract. Business endpoints will be defined before implementation.
+  description: >
+    API contract for authentication and security. B2 submission and analysis
+    endpoints will be specified separately before implementation.
+
 servers:
   - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: Registration, login, refresh-token rotation, and logout.
+  - name: Users
+    description: Current-user profile and account information.
+  - name: Operations
+    description: Application health and operational endpoints.
+
 paths:
+  /api/v1/auth/register:
+    post:
+      security: []
+      tags: [Authentication]
+      operationId: registerUser
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/login:
+    post:
+      security: []
+      tags: [Authentication]
+      operationId: loginUser
+      summary: Authenticate and issue tokens
+      description: >
+        Sets the refresh_token HttpOnly cookie. The refresh token is never
+        included in the JSON response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              description: HttpOnly refresh-token cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid email or password
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshAccessToken
+      summary: Rotate refresh token and issue a new access token
+      description: >
+        Requires the refresh_token cookie, X-CSRF-Protection header, and a
+        valid Origin. Rotates the refresh token atomically and sets a
+        replacement cookie. Refresh tokens are never included in JSON.
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+        - $ref: '#/components/parameters/OriginHeader'
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: Refresh successful
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly refresh-token cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logoutUser
+      summary: Revoke refresh token and clear cookie
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+        - $ref: '#/components/parameters/OriginHeader'
+      security:
+        - refreshCookie: []
+      responses:
+        '204':
+          description: Logout successful; refresh cookie cleared
+          headers:
+            Set-Cookie:
+              description: Expired refresh-token cookie
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      summary: Get the authenticated user's profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /actuator/health:
     get:
-      summary: Check application health
+      security: []
+      tags: [Operations]
       operationId: getApplicationHealth
-      tags:
-        - Operations
+      summary: Check application health
       responses:
-        "200":
+        '200':
           description: Application health response
           content:
-            application/vnd.spring-boot.actuator.v3+json:
-              schema:
-                type: object
-                additionalProperties: true
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+
+  parameters:
+    CsrfHeader:
+      name: X-CSRF-Protection
+      in: header
+      required: true
+      description: Required custom header for cookie-authenticated requests.
+      schema:
+        type: string
+        example: '1'
+    OriginHeader:
+      name: Origin
+      in: header
+      required: true
+      description: Must match a configured allowed frontend origin.
+      schema:
+        type: string
+        format: uri
+
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+
+    UserProfile:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [USER, RESEARCHER, ADMIN]
+
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived JWT access token.
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Access-token lifetime in seconds.
+          example: 900
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+      required: [type, title, status]
+
+  responses:
+    BadRequest:
+      description: Invalid request or validation failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Authentication is missing or invalid
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Request rejected by security policy
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Email is already registered
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Request rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
