@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "findingId": "00000000-0000-0000-0000-000000000004",
+      "ruleCode": "COMPLEXITY001",
+      "cweId": "CWE-674",
+      "severity": "MEDIUM",
+      "startLine": 10,
+      "endLine": 14,
+      "message": "Method complexity exceeds the configured threshold.",
+      "snippet": "if (condition) { ... }",
+      "confidence": 0.95
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalItems": 1,
+  "totalPages": 1
+}

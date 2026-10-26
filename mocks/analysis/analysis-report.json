@@ -1,0 +1,50 @@
+{
+  "runId": "00000000-0000-0000-0000-000000000003",
+  "status": "COMPLETED",
+  "overallScore": 85.0,
+  "grade": "A",
+  "scoringVersion": "1.0",
+  "scoreFormula": "Overall score calculated using weighted dimension scores.",
+  "dimensions": [
+    {
+      "dimension": "COMPLEXITY",
+      "weightedDensity": 0.15,
+      "subScore": 85.0
+    }
+  ],
+  "findingContributions": [
+    {
+      "findingId": "00000000-0000-0000-0000-000000000004",
+      "contribution": 5.0,
+      "explanation": "Illustrative contribution from a complexity finding."
+    }
+  ],
+  "findings": [
+    {
+      "findingId": "00000000-0000-0000-0000-000000000004",
+      "ruleCode": "COMPLEXITY001",
+      "cweId": "CWE-674",
+      "severity": "MEDIUM",
+      "startLine": 10,
+      "endLine": 14,
+      "message": "Method complexity exceeds the configured threshold.",
+      "snippet": "if (condition) { ... }",
+      "confidence": 0.95
+    }
+  ],
+  "explanations": [],
+  "clones": [],
+  "metrics": [
+    {
+      "metricName": "CYCLOMATIC_COMPLEXITY",
+      "scopeRef": "Example.calculate",
+      "value": 5.0
+    }
+  ],
+  "toolVersions": {
+    "javaParser": "project-configured-version"
+  },
+  "ruleVersions": {
+    "COMPLEXITY001": "1.0"
+  }
+}

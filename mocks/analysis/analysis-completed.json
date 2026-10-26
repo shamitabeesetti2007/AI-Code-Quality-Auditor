@@ -1,0 +1,16 @@
+{
+  "runId": "00000000-0000-0000-0000-000000000003",
+  "status": "COMPLETED",
+  "overallScore": 85.0,
+  "grade": "A",
+  "scoringVersion": "1.0",
+  "dimensions": [
+    {
+      "dimension": "COMPLEXITY",
+      "weightedDensity": 0.15,
+      "subScore": 85.0
+    }
+  ],
+  "startedAt": "2026-10-25T09:00:00Z",
+  "finishedAt": "2026-10-25T09:00:03Z"
+}

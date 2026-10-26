@@ -1,17 +1,30 @@
 ﻿openapi: 3.0.3
+
 info:
   title: AI Code Quality Auditor API
   version: 1.0.0
-  description: Initial API contract. Business endpoints will be defined before implementation.
+  description: API contract for submissions, code analysis, reports, and history.
+
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8080/api/v1
+    description: Local development server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Operations
+  - name: Submissions
+  - name: Analysis
+  - name: History
+
 paths:
   /actuator/health:
     get:
       summary: Check application health
       operationId: getApplicationHealth
-      tags:
-        - Operations
+      tags: [Operations]
+      security: []
       responses:
         "200":
           description: Application health response
@@ -24,3 +37,760 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+
+  /submissions:
+    post:
+      summary: Create a code submission
+      operationId: createSubmission
+      tags: [Submissions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubmissionRequest"
+            example:
+              title: Example submission
+              originType: HUMAN
+              sourceCode: "class Example { public static void main(String[] args) {} }"
+              autoAnalyze: true
+      responses:
+        "201":
+          description: Submission created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSubmissionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+
+    get:
+      summary: List submissions owned by the current user
+      operationId: listSubmissions
+      tags: [Submissions]
+      parameters:
+        - name: originType
+          in: query
+          schema:
+            $ref: "#/components/schemas/OriginType"
+        - name: taskId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+      responses:
+        "200":
+          description: Paginated submissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /submissions/{submissionId}:
+    parameters:
+      - $ref: "#/components/parameters/SubmissionId"
+
+    get:
+      summary: Get a submission and its source code
+      operationId: getSubmission
+      tags: [Submissions]
+      responses:
+        "200":
+          description: Submission details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      summary: Soft-delete a submission
+      operationId: deleteSubmission
+      tags: [Submissions]
+      responses:
+        "204":
+          description: Submission deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /submissions/{submissionId}/lineage:
+    get:
+      summary: Get submission lineage
+      operationId: getSubmissionLineage
+      tags: [Submissions]
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+      responses:
+        "200":
+          description: Submission lineage
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LineageItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /history/trend:
+    get:
+      summary: Get analysis history trend
+      operationId: getHistoryTrend
+      tags: [History]
+      parameters:
+        - name: dimension
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Historical scores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HistoryTrendItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /submissions/{submissionId}/analysis-runs:
+    post:
+      summary: Start an analysis run
+      operationId: createAnalysisRun
+      tags: [Analysis]
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAnalysisRunRequest"
+      responses:
+        "202":
+          description: Analysis queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAnalysisRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: An analysis run is already in progress for this submission
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      existingRunId:
+                        type: string
+                        format: uuid
+              example:
+                type: about:blank
+                title: Analysis already in progress
+                status: 409
+                detail: An analysis run is already in progress for this submission.
+                instance: /api/v1/submissions/00000000-0000-0000-0000-000000000002/analysis-runs
+                code: ANALYSIS_ALREADY_RUNNING
+                existingRunId: 00000000-0000-0000-0000-000000000003
+
+  /analysis-runs/{runId}:
+    get:
+      summary: Get analysis run status and scores
+      operationId: getAnalysisRun
+      tags: [Analysis]
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Analysis run details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /analysis-runs/{runId}/findings:
+    get:
+      summary: List findings for an analysis run
+      operationId: listFindings
+      tags: [Analysis]
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - name: severity
+          in: query
+          schema:
+            $ref: "#/components/schemas/Severity"
+        - name: dimension
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+      responses:
+        "200":
+          description: Paginated findings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /analysis-runs/{runId}/metrics:
+    get:
+      summary: Get analysis metrics
+      operationId: getAnalysisMetrics
+      tags: [Analysis]
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - name: scopeType
+          in: query
+          schema:
+            type: string
+            example: METHOD
+      responses:
+        "200":
+          description: Analysis metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Metric"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /analysis-runs/{runId}/report:
+    get:
+      summary: Get the completed analysis report
+      operationId: getAnalysisReport
+      tags: [Analysis]
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Completed analysis report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Analysis has not finished
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    SubmissionId:
+      name: submissionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    Size:
+      name: size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    OriginType:
+      type: string
+      enum:
+        - HUMAN
+        - AI_ASSISTED
+        - AI_GENERATED
+
+    RunStatus:
+      type: string
+      enum:
+        - QUEUED
+        - RUNNING
+        - COMPLETED
+        - FAILED
+        - PARSE_FAILED
+
+    Severity:
+      type: string
+      enum:
+        - INFO
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+
+    CreateSubmissionRequest:
+      type: object
+      required:
+        - originType
+        - sourceCode
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        originType:
+          $ref: "#/components/schemas/OriginType"
+        sourceCode:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        taskId:
+          type: string
+          format: uuid
+        autoAnalyze:
+          type: boolean
+          default: false
+
+    CreateSubmissionResponse:
+      type: object
+      required:
+        - submissionId
+        - originType
+        - logicalLoc
+      properties:
+        submissionId:
+          type: string
+          format: uuid
+        originType:
+          $ref: "#/components/schemas/OriginType"
+        logicalLoc:
+          type: integer
+          minimum: 0
+        runId:
+          type: string
+          format: uuid
+
+    SubmissionSummary:
+      type: object
+      required:
+        - submissionId
+        - originType
+        - logicalLoc
+        - createdAt
+      properties:
+        submissionId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        originType:
+          $ref: "#/components/schemas/OriginType"
+        logicalLoc:
+          type: integer
+        latestGrade:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    SubmissionDetail:
+      allOf:
+        - $ref: "#/components/schemas/SubmissionSummary"
+        - type: object
+          required:
+            - sourceCode
+          properties:
+            sourceCode:
+              type: string
+
+    LineageItem:
+      type: object
+      required:
+        - submissionId
+        - originType
+        - depth
+      properties:
+        submissionId:
+          type: string
+          format: uuid
+        originType:
+          $ref: "#/components/schemas/OriginType"
+        depth:
+          type: integer
+          minimum: 0
+        grade:
+          type: string
+
+    HistoryTrendItem:
+      type: object
+      required:
+        - date
+        - submissionId
+        - originType
+        - subScore
+      properties:
+        date:
+          type: string
+          format: date
+        submissionId:
+          type: string
+          format: uuid
+        originType:
+          $ref: "#/components/schemas/OriginType"
+        subScore:
+          type: number
+          format: double
+
+    CreateAnalysisRunRequest:
+      type: object
+      properties:
+        analyzers:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - complexity
+              - duplication
+              - security
+              - maintainability
+
+    CreateAnalysisRunResponse:
+      type: object
+      required:
+        - runId
+        - status
+      properties:
+        runId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED]
+
+    DimensionScore:
+      type: object
+      required:
+        - dimension
+        - weightedDensity
+        - subScore
+      properties:
+        dimension:
+          type: string
+        weightedDensity:
+          type: number
+          format: double
+        subScore:
+          type: number
+          format: double
+
+    AnalysisRun:
+      type: object
+      required:
+        - runId
+        - status
+      properties:
+        runId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        overallScore:
+          type: number
+          format: double
+        grade:
+          type: string
+        scoringVersion:
+          type: string
+        dimensions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DimensionScore"
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        error:
+          type: string
+
+    Finding:
+      type: object
+      required:
+        - findingId
+        - ruleCode
+        - severity
+        - message
+      properties:
+        findingId:
+          type: string
+          format: uuid
+        ruleCode:
+          type: string
+        cweId:
+          type: string
+        severity:
+          $ref: "#/components/schemas/Severity"
+        startLine:
+          type: integer
+          minimum: 1
+        endLine:
+          type: integer
+          minimum: 1
+        message:
+          type: string
+        snippet:
+          type: string
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+
+    Metric:
+      type: object
+      required:
+        - metricName
+        - scopeRef
+        - value
+      properties:
+        metricName:
+          type: string
+        scopeRef:
+          type: string
+        value:
+          type: number
+          format: double
+
+    FindingContribution:
+      type: object
+      properties:
+        findingId:
+          type: string
+          format: uuid
+        contribution:
+          type: number
+          format: double
+        explanation:
+          type: string
+
+    AnalysisReport:
+      type: object
+      required:
+        - runId
+        - status
+        - scoringVersion
+      properties:
+        runId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        overallScore:
+          type: number
+          format: double
+        grade:
+          type: string
+        scoringVersion:
+          type: string
+        scoreFormula:
+          type: string
+        dimensions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DimensionScore"
+        findingContributions:
+          type: array
+          items:
+            $ref: "#/components/schemas/FindingContribution"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Finding"
+        explanations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        clones:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/Metric"
+        toolVersions:
+          type: object
+          additionalProperties:
+            type: string
+        ruleVersions:
+          type: object
+          additionalProperties:
+            type: string
+
+    SubmissionPage:
+      allOf:
+        - $ref: "#/components/schemas/PageMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/SubmissionSummary"
+
+    FindingPage:
+      allOf:
+        - $ref: "#/components/schemas/PageMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Finding"
+
+    PageMetadata:
+      type: object
+      required:
+        - page
+        - size
+        - totalItems
+        - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    Problem:
+      type: object
+      required:
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request or parameter
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    NotFound:
+      description: Resource not found or not owned by the requester
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    UnprocessableContent:
+      description: Source input cannot be processed
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "submissionId": "00000000-0000-0000-0000-000000000002",
+      "title": "Example Java submission",
+      "originType": "HUMAN",
+      "logicalLoc": 3,
+      "latestGrade": "A",
+      "createdAt": "2026-10-25T09:00:00Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalItems": 1,
+  "totalPages": 1
+}
