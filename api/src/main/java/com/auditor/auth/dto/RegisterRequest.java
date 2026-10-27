@@ -5,6 +5,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.util.Locale;
+
 public record RegisterRequest(
 
         @NotBlank
@@ -20,5 +22,11 @@ public record RegisterRequest(
         @Size(max = 100)
         String displayName
 
-) {}
+) {
 
+    public RegisterRequest {
+        if (email != null) {
+            email = email.trim().toLowerCase(Locale.ROOT);
+        }
+    }
+}

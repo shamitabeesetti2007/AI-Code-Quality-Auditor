@@ -5,6 +5,7 @@ import com.auditor.auth.dto.LoginRequest;
 import com.auditor.auth.dto.LoginResponse;
 import com.auditor.auth.dto.RegisterRequest;
 import com.auditor.auth.dto.UserResponse;
+import com.auditor.auth.token.RefreshTokenService;
 import com.auditor.common.EmailAlreadyRegisteredException;
 import com.auditor.user.AppUser;
 import com.auditor.user.UserRepository;
@@ -24,21 +25,26 @@ public class AuthService {
     private static final String EMAIL_UNIQUE_CONSTRAINT =
             "app_user_email_key";
 
-    // Valid BCrypt hash used to perform a password check for unknown emails.
     private static final String DUMMY_PASSWORD_HASH =
             "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
+    private final LoginRateLimiter loginRateLimiter;
 
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService) {
+            JwtService jwtService,
+            RefreshTokenService refreshTokenService,
+            LoginRateLimiter loginRateLimiter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
+        this.loginRateLimiter = loginRateLimiter;
     }
 
     @Transactional
@@ -75,30 +81,42 @@ public class AuthService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public LoginResponse login(LoginRequest request) {
+    @Transactional
+    public AuthResult login(LoginRequest request, String clientIp) {
         String email = request.email().trim().toLowerCase(Locale.ROOT);
-        Optional<AppUser> candidate = userRepository.findByEmail(email);
+        try (LoginRateLimiter.Attempt attempt =
+                     loginRateLimiter.beginAttempt(email, clientIp)) {
+            Optional<AppUser> candidate = userRepository.findByEmail(email);
 
-        if (candidate.isEmpty()) {
-            passwordEncoder.matches(
-                    request.password(), DUMMY_PASSWORD_HASH);
-            throw new InvalidCredentialsException();
+            if (candidate.isEmpty()) {
+                passwordEncoder.matches(
+                        request.password(), DUMMY_PASSWORD_HASH);
+                attempt.recordFailure();
+                throw new InvalidCredentialsException();
+            }
+
+            AppUser user = candidate.get();
+
+            boolean passwordMatches = passwordEncoder.matches(
+                    request.password(), user.getPasswordHash());
+
+            if (!passwordMatches
+                    || user.getAccountStatus()
+                            != AppUser.AccountStatus.ACTIVE) {
+                attempt.recordFailure();
+                throw new InvalidCredentialsException();
+            }
+
+            var refresh = refreshTokenService.issueInitial(user);
+            String accessToken = jwtService.generateAccessToken(user);
+            AuthResult result = new AuthResult(
+                    LoginResponse.from(
+                            accessToken, UserResponse.from(user)),
+                    refresh.rawToken(),
+                    refresh.expiresAt());
+            attempt.recordSuccess();
+            return result;
         }
-
-        AppUser user = candidate.get();
-
-        boolean passwordMatches = passwordEncoder.matches(
-                request.password(), user.getPasswordHash());
-
-        if (!passwordMatches
-                || user.getAccountStatus() != AppUser.AccountStatus.ACTIVE) {
-            throw new InvalidCredentialsException();
-        }
-
-        String token = jwtService.generateAccessToken(user);
-
-        return LoginResponse.from(token, UserResponse.from(user));
     }
 
     private boolean isEmailUniqueViolation(
@@ -111,11 +129,11 @@ public class AuthService {
                             constraintEx.getConstraintName())) {
                 return true;
             }
-
             cause = cause.getCause();
         }
 
         return false;
     }
 }
+
 

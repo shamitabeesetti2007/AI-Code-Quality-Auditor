@@ -80,6 +80,96 @@ class JwtServiceTest {
     }
 
     @Test
+    void rejectsSignedTokenWithMissingSubject() {
+        String token = Jwts.builder()
+                .issuer(ISSUER)
+                .issuedAt(new Date())
+                .expiration(Date.from(Instant.now().plusSeconds(60)))
+                .signWith(testSigningKey())
+                .compact();
+
+        assertThrows(
+                io.jsonwebtoken.JwtException.class,
+                () -> jwtService.validateAndGetUserId(token));
+    }
+
+    @Test
+    void rejectsSignedTokenWithBlankSubject() {
+        String token = Jwts.builder()
+                .subject(" ")
+                .issuer(ISSUER)
+                .issuedAt(new Date())
+                .expiration(Date.from(Instant.now().plusSeconds(60)))
+                .signWith(testSigningKey())
+                .compact();
+
+        assertThrows(
+                io.jsonwebtoken.JwtException.class,
+                () -> jwtService.validateAndGetUserId(token));
+    }
+
+    @Test
+    void rejectsSignedTokenWithMissingExpiration() {
+        String token = Jwts.builder()
+                .subject(UUID.randomUUID().toString())
+                .claim("role", "USER")
+                .issuer(ISSUER)
+                .issuedAt(new Date())
+                .signWith(testSigningKey())
+                .compact();
+
+        assertThrows(
+                io.jsonwebtoken.JwtException.class,
+                () -> jwtService.validateAndGetUserId(token));
+    }
+
+    @Test
+    void rejectsSignedTokenWithMissingIssuedAt() {
+        String token = Jwts.builder()
+                .subject(UUID.randomUUID().toString())
+                .claim("role", "USER")
+                .issuer(ISSUER)
+                .expiration(Date.from(Instant.now().plusSeconds(60)))
+                .signWith(testSigningKey())
+                .compact();
+
+        assertThrows(
+                io.jsonwebtoken.JwtException.class,
+                () -> jwtService.validateAndGetUserId(token));
+    }
+
+    @Test
+    void rejectsSignedTokenWithMissingRole() {
+        String token = Jwts.builder()
+                .subject(UUID.randomUUID().toString())
+                .issuer(ISSUER)
+                .issuedAt(new Date())
+                .expiration(Date.from(Instant.now().plusSeconds(60)))
+                .signWith(testSigningKey())
+                .compact();
+
+        assertThrows(
+                io.jsonwebtoken.JwtException.class,
+                () -> jwtService.validateAndGetUserId(token));
+    }
+
+    @Test
+    void rejectsSignedTokenWithUnknownRole() {
+        String token = Jwts.builder()
+                .subject(UUID.randomUUID().toString())
+                .claim("role", "SUPERUSER")
+                .issuer(ISSUER)
+                .issuedAt(new Date())
+                .expiration(Date.from(Instant.now().plusSeconds(60)))
+                .signWith(testSigningKey())
+                .compact();
+
+        assertThrows(
+                io.jsonwebtoken.JwtException.class,
+                () -> jwtService.validateAndGetUserId(token));
+    }
+
+    @Test
     void rejectsMalformedToken() {
         assertThrows(
                 io.jsonwebtoken.JwtException.class,
@@ -90,9 +180,10 @@ class JwtServiceTest {
     void rejectsMissingSecret() {
         JwtService serviceWithoutSecret = new JwtService("", ISSUER);
 
-        assertThrows(
+        IllegalStateException exception = assertThrows(
                 IllegalStateException.class,
                 () -> serviceWithoutSecret.validateAndGetUserId("any-token"));
+        assertTrue(exception.getMessage().contains("APP_JWT_SECRET"));
     }
 
     @Test
@@ -112,6 +203,7 @@ class JwtServiceTest {
 
         return Jwts.builder()
                 .subject(UUID.randomUUID().toString())
+                .claim("role", "USER")
                 .issuer(issuer)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))

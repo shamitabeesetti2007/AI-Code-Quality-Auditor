@@ -103,6 +103,13 @@ public class AppUser {
         return accountStatus;
     }
 
+    void changeRole(Role role) {
+        if (role == null) {
+            throw new IllegalArgumentException("Role must not be null.");
+        }
+        this.role = role;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }

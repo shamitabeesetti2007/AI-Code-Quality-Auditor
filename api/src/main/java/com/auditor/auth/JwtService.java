@@ -51,13 +51,39 @@ public class JwtService {
                 .parseSignedClaims(token)
                 .getPayload();
 
-        return UUID.fromString(claims.getSubject());
+        String subject = claims.getSubject();
+        if (subject == null || subject.isBlank()) {
+            throw new JwtException("JWT subject is missing.");
+        }
+        if (claims.getExpiration() == null) {
+            throw new JwtException("JWT expiration is missing.");
+        }
+        if (claims.getIssuedAt() == null) {
+            throw new JwtException("JWT issued-at time is missing.");
+        }
+
+        Object role = claims.get("role");
+        if (!(role instanceof String roleName)
+                || !isKnownRole(roleName)) {
+            throw new JwtException("JWT role claim is invalid.");
+        }
+
+        return UUID.fromString(subject);
+    }
+
+    private boolean isKnownRole(String roleName) {
+        for (AppUser.Role role : AppUser.Role.values()) {
+            if (role.name().equals(roleName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private SecretKey getSigningKey() {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException(
-                    "JWT secret is not configured. Set the JWT_SECRET environment variable.");
+                    "JWT secret is not configured. Set the APP_JWT_SECRET environment variable.");
         }
 
         byte[] keyBytes;
@@ -66,12 +92,12 @@ public class JwtService {
             keyBytes = java.util.Base64.getDecoder().decode(secret);
         } catch (IllegalArgumentException ex) {
             throw new IllegalStateException(
-                    "JWT_SECRET must be a Base64-encoded random key.", ex);
+                    "APP_JWT_SECRET must be a Base64-encoded random key.", ex);
         }
 
         if (keyBytes.length < 32) {
             throw new IllegalStateException(
-                    "JWT_SECRET must decode to at least 32 bytes.");
+                    "APP_JWT_SECRET must decode to at least 32 bytes.");
         }
 
         return Keys.hmacShaKeyFor(keyBytes);

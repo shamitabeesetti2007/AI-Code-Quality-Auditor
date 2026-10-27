@@ -66,7 +66,7 @@ Spring Security validates the token's signature, expiry, issuer and required cla
 **Initial token configuration:**
 - Algorithm: HS256.
 - Lifetime: 15 minutes.
-- Signing secret: supplied through deployment configuration, never committed to source control.
+- Signing secret: supplied as `APP_JWT_SECRET` through deployment configuration and bound to `app.jwt.secret`; never committed to source control.
 - Secret strength: at least 256 bits of cryptographically random key material.
 - Claims: subject containing the user ID, role, issued-at time, expiry, and issuer.
 
@@ -140,9 +140,21 @@ The initial login rate limiter uses both:
 - Client IP address.
 - Normalized email address.
 
-The initial implementation may use an in-memory limiter for the single-instance MVP. It must have configurable thresholds, return HTTP 429 when exceeded, and provide a `Retry-After` header where appropriate.
+The initial policy permits five failed attempts per normalized email and
+thirty failed attempts per client IP in a rolling 15-minute window. Attempts
+are reserved before credential verification so concurrent requests cannot
+exceed either threshold. Unknown email, incorrect password, and disabled
+account failures count equally. A successful login clears the normalized
+email's failure state but does not clear the IP's failure state.
 
-This design does not provide shared rate-limit state across multiple application instances. A distributed deployment must use shared storage or an equivalent coordinated limiter.
+Return a generic `application/problem+json` 429 response with a `Retry-After`
+header in seconds. The limiter uses bounded in-memory state and is suitable
+only for the single-instance MVP; a multi-instance deployment must use shared
+storage or an equivalent coordinated limiter.
+
+Use the direct peer address from the servlet request. Do not trust forwarded
+client-IP headers unless a trusted-proxy configuration is explicitly
+introduced and configured for the deployment.
 
 Unknown-user login attempts should perform a dummy password-hash verification to reduce obvious timing differences. Login responses must remain generic.
 
@@ -155,6 +167,20 @@ The final schema must be aligned with the approved database design proposal. Dat
 Required sensitive actions must be audited, particularly privileged role changes. Audit records must not contain raw credentials, raw tokens, or complete access tokens.
 
 Never edit an already-applied Flyway migration. Introduce schema changes through new migrations after the schema has been reviewed and approved.
+
+### First administrator bootstrap
+
+The first administrator is provisioned only by an operator-invoked application
+runner, never through registration or an HTTP endpoint. Invoke the packaged
+application with `spring.main.web-application-type=none`,
+`app.bootstrap.enabled=true`, `app.bootstrap.target-user-id=<existing-user-uuid>`,
+and a nonblank `app.bootstrap.reason`. The runner refuses web application mode.
+
+The bootstrap and role-change services use the same transaction-scoped
+PostgreSQL advisory lock. Bootstrap is refused if any administrator role or
+prior `ADMIN_BOOTSTRAP` event exists, and the target must be an existing active
+user. The role update and audit record commit or roll back together. The audit
+record has no actor or old role and stores the operator-supplied reason.
 
 ## 11. Security Error Handling
 
@@ -203,6 +229,8 @@ Do not return stack traces, secret configuration, password data, or internal exc
 - Protected endpoints reject missing or invalid access tokens.
 - Role-based authorization and ownership checks.
 - Required audit record for privileged role changes.
+- First-admin bootstrap is operator-only, single-use, and audited.
+- Bootstrap audit insertion failure rolls back the administrator role update.
 - Consistent problem responses for security-filter and controller errors.
 
 Use unit tests for isolated logic and integration tests against PostgreSQL for transaction, uniqueness, and token-lifecycle behavior.
@@ -217,13 +245,13 @@ The following decisions are established for the initial implementation:
 - Token-family revocation on refresh-token reuse.
 - Atomic token rotation.
 - In-memory login rate limiting for the single-instance MVP.
+- First-admin bootstrap through a non-web operator invocation.
 
 The following must still be confirmed during implementation planning:
 - Exact database columns, constraints, indexes, and foreign keys.
 - Exact CSRF header name and configured allowed origins.
 - Cookie behavior for local development and production deployment.
-- Precise rate-limit thresholds and trusted-proxy handling for client IPs.
-- Initial-administrator setup procedure.
+- Trusted-proxy handling before any forwarded client-IP headers are trusted.
 - Whether role changes require immediate access-token invalidation.
 
 These decisions must be resolved against the Project Bible, approved database proposal, and API contract before the affected implementation is finalized.

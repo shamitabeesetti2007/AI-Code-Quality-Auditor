@@ -1,3 +1,4 @@
+
 package com.auditor.auth.dto;
 
 public record LoginResponse(

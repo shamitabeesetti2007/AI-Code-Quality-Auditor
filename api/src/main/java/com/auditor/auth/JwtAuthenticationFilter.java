@@ -8,6 +8,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -23,12 +24,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final SecurityProblemResponseWriter problemResponseWriter;
 
     public JwtAuthenticationFilter(
             JwtService jwtService,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            SecurityProblemResponseWriter problemResponseWriter) {
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.problemResponseWriter = problemResponseWriter;
     }
 
     @Override
@@ -45,46 +49,69 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String token = authorization.substring(7);
+        UUID userId;
 
         try {
-            UUID userId = jwtService.validateAndGetUserId(token);
-
-            AppUser user = userRepository.findById(userId).orElse(null);
-
-            if (user == null
-                    || user.getAccountStatus() != AppUser.AccountStatus.ACTIVE) {
-                SecurityContextHolder.clearContext();
-                writeUnauthorized(response);
-                return;
-            }
-
-            var authentication = new UsernamePasswordAuthenticationToken(
-                    user.getUserId().toString(),
-                    null,
-                    List.of(new SimpleGrantedAuthority(
-                            "ROLE_" + user.getRole().name())));
-
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-
+            userId = jwtService.validateAndGetUserId(token);
         } catch (JwtException | IllegalArgumentException ex) {
             SecurityContextHolder.clearContext();
-            writeUnauthorized(response);
+            writeUnauthorized(request, response);
             return;
-        } catch (IllegalStateException ex) {
+        } catch (RuntimeException ex) {
             SecurityContextHolder.clearContext();
-            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            writeInternalServerError(request, response);
+            return;
+        }
+
+        AppUser user;
+        boolean active;
+        try {
+            user = userRepository.findById(userId).orElse(null);
+            active = user != null
+                    && user.getAccountStatus() == AppUser.AccountStatus.ACTIVE;
+            if (active) {
+                var authentication = new UsernamePasswordAuthenticationToken(
+                        user.getUserId().toString(),
+                        null,
+                        List.of(new SimpleGrantedAuthority(
+                                "ROLE_" + user.getRole().name())));
+                SecurityContextHolder.getContext().setAuthentication(
+                        authentication);
+            }
+        } catch (RuntimeException ex) {
+            SecurityContextHolder.clearContext();
+            writeInternalServerError(request, response);
+            return;
+        }
+
+        if (!active) {
+            SecurityContextHolder.clearContext();
+            writeUnauthorized(request, response);
             return;
         }
 
         filterChain.doFilter(request, response);
     }
 
-    private void writeUnauthorized(HttpServletResponse response)
+    private void writeInternalServerError(
+            HttpServletRequest request,
+            HttpServletResponse response)
             throws IOException {
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType("application/problem+json");
-        response.getWriter().write(
-                "{\"title\":\"Unauthorized\",\"status\":401,"
-                        + "\"detail\":\"Authentication required or token invalid.\"}");
+        problemResponseWriter.write(
+                request,
+                response,
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected authentication error occurred.");
+    }
+
+    private void writeUnauthorized(
+            HttpServletRequest request,
+            HttpServletResponse response)
+            throws IOException {
+        problemResponseWriter.write(
+                request,
+                response,
+                HttpStatus.UNAUTHORIZED,
+                "Authentication is required or the token is invalid.");
     }
 }

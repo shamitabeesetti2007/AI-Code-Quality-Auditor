@@ -16,10 +16,35 @@ tags:
     description: Registration, login, refresh-token rotation, and logout.
   - name: Users
     description: Current-user profile and account information.
+  - name: Administration
+    description: Administrator-only account and role management.
   - name: Operations
     description: Application health and operational endpoints.
 
 paths:
+  /api/v1/csrf:
+    get:
+      security: []
+      tags: [Authentication]
+      operationId: getCsrfToken
+      summary: Provision a CSRF token
+      description: >
+        Returns the token and header name and sets a readable XSRF-TOKEN
+        cookie. Send the returned token in the X-XSRF-TOKEN header together
+        with the cookie on state-changing requests.
+      responses:
+        '200':
+          description: CSRF token provisioned
+          headers:
+            Set-Cookie:
+              description: Readable CSRF token cookie (not the refresh token)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfTokenResponse'
+
   /api/v1/auth/register:
     post:
       security: []
@@ -92,14 +117,15 @@ paths:
       operationId: refreshAccessToken
       summary: Rotate refresh token and issue a new access token
       description: >
-        Requires the refresh_token cookie, X-CSRF-Protection header, and a
-        valid Origin. Rotates the refresh token atomically and sets a
+        Requires refresh_token and XSRF-TOKEN cookies, the X-XSRF-TOKEN
+        header, and a valid Origin. Rotates the refresh token atomically and sets a
         replacement cookie. Refresh tokens are never included in JSON.
       parameters:
         - $ref: '#/components/parameters/CsrfHeader'
         - $ref: '#/components/parameters/OriginHeader'
       security:
         - refreshCookie: []
+          csrfCookie: []
       responses:
         '200':
           description: Refresh successful
@@ -133,6 +159,7 @@ paths:
         - $ref: '#/components/parameters/OriginHeader'
       security:
         - refreshCookie: []
+          csrfCookie: []
       responses:
         '204':
           description: Logout successful; refresh cookie cleared
@@ -148,7 +175,16 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '500':
-          $ref: '#/components/responses/InternalError'
+          description: Revocation failed; logout was unsuccessful and the refresh cookie was cleared
+          headers:
+            Set-Cookie:
+              description: Expired refresh-token cookie
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
   /api/v1/users/me:
     get:
@@ -166,6 +202,59 @@ paths:
                 $ref: '#/components/schemas/UserProfile'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/users/{userId}/role:
+    patch:
+      tags: [Administration]
+      operationId: changeUserRole
+      summary: Change a user's role
+      description: >
+        Requires an authenticated administrator, the XSRF-TOKEN cookie, and
+        the provisioned X-XSRF-TOKEN header. Rejects no-op changes,
+        administrator self-demotion, and
+        demotion of the last active administrator. Successful changes are
+        audited in the same transaction as the role update.
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-XSRF-TOKEN
+          in: header
+          required: true
+          description: Token returned by GET /api/v1/csrf.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleChangeRequest'
+      responses:
+        '200':
+          description: Role changed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -194,16 +283,20 @@ components:
       type: apiKey
       in: cookie
       name: refresh_token
+    csrfCookie:
+      type: apiKey
+      in: cookie
+      name: XSRF-TOKEN
 
   parameters:
     CsrfHeader:
-      name: X-CSRF-Protection
+      name: X-XSRF-TOKEN
       in: header
       required: true
-      description: Required custom header for cookie-authenticated requests.
+      description: Token returned by GET /api/v1/csrf.
       schema:
         type: string
-        example: '1'
+        example: 'provisioned-csrf-token'
     OriginHeader:
       name: Origin
       in: header
@@ -245,6 +338,27 @@ components:
           type: string
           minLength: 1
           writeOnly: true
+
+    CsrfTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [token, headerName]
+      properties:
+        token:
+          type: string
+          description: Send this value in the header named by headerName.
+        headerName:
+          type: string
+          enum: [X-XSRF-TOKEN]
+
+    RoleChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [USER, RESEARCHER, ADMIN]
 
     UserProfile:
       type: object
@@ -317,8 +431,14 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     Conflict:
-      description: Email is already registered
+      description: Request conflicts with the current resource state
       content:
         application/problem+json:
           schema:
