@@ -1,0 +1,174 @@
+/* AI Code Quality Auditor — Design Tokens
+ * Modern Futuristic SaaS, Dark Luxury, Cyan Glow, and Editorial Typography
+ */
+
+:root {
+  /* =========================================================================
+     LIGHT THEME (Visibly Soft Pastel Baby Blue Canvas)
+     ========================================================================= */
+  --bg-page: #E2EEFC;              /* Soft pastel baby blue canvas */
+  --bg-surface: #FFFFFF;           /* Card surface: crisp pure white for gentle contrast */
+  --bg-surface-elevated: #F1F6FD;  /* Elevated subtle baby blue tinted surface */
+  --bg-subtle: #D8E9FA;            /* Tinted hover */
+  --border-subtle: rgba(15, 23, 42, 0.08); /* 1px hairline border */
+  --border-strong: rgba(14, 165, 233, 0.35);
+  
+  --text-main: #0F172A;            /* Deep slate headings (Slate 900) */
+  --text-body: #1E293B;            /* Slate 800 body text */
+  --text-muted: #334155;           /* Slate 700 accessible secondary text */
+  
+  --color-primary: #0284C7;        /* Clean sky blue CTA */
+  --color-primary-hover: #0369A1;
+  --color-primary-text: #FFFFFF;
+  
+  --color-accent: #0284C7;         /* Sky 600 accent */
+  --color-accent-subtle: rgba(2, 132, 199, 0.08);
+  --color-brand-yellow: #B45309;   /* High-contrast amber 700 */
+  
+  /* Semantic Severities (Light) */
+  --severity-critical: #DC2626;
+  --severity-critical-bg: #FEF2F2;
+  --severity-critical-border: #FECACA;
+  
+  --severity-high: #EA580C;
+  --severity-high-bg: #FFF7ED;
+  --severity-high-border: #FFEDD5;
+  
+  --severity-medium: #D97706;
+  --severity-medium-bg: #FFFBEB;
+  --severity-medium-border: #FEF3C7;
+  
+  --severity-low: #16A34A;
+  --severity-low-bg: #F0FDF4;
+  --severity-low-border: #DCFCE7;
+  
+  --severity-info: #0284C7;
+  --severity-info-bg: #F0F9FF;
+  --severity-info-border: #BAE6FD;
+
+  /* Remediation Outcomes */
+  --outcome-clean: #16A34A;
+  --outcome-clean-bg: #F0FDF4;
+  --outcome-warnings: #0D9488;
+  --outcome-warnings-bg: #F0FDFA;
+  --outcome-partial: #D97706;
+  --outcome-partial-bg: #FFFBEB;
+  --outcome-regressed: #E11D48;
+  --outcome-regressed-bg: #FFF1F2;
+  --outcome-broken: #DC2626;
+  --outcome-broken-bg: #FEF2F2;
+
+  /* Ambient Glow & Grid */
+  --glow-ambient: rgba(14, 165, 233, 0.1);
+  --grid-line-color: rgba(15, 23, 42, 0.04);
+}
+
+.dark {
+  /* =========================================================================
+     DARK LUXURY (PRIMARY EXPERIENCE): Cosmic Navy, Glass & Cyan Glow
+     ========================================================================= */
+  --bg-page: #090B10;              /* Cosmic near-black / deep navy canvas */
+  --bg-surface: rgba(16, 20, 32, 0.72);   /* Glassmorphic dark card surface */
+  --bg-surface-elevated: rgba(24, 30, 48, 0.85); /* Elevated glass surface */
+  --bg-subtle: rgba(255, 255, 255, 0.035); /* Delicate translucent hover */
+  --border-subtle: rgba(255, 255, 255, 0.08); /* Hairline glass border */
+  --border-strong: rgba(56, 189, 248, 0.35); /* Electric cyan highlight border */
+  
+  --text-main: #F8FAFC;            /* Crisp off-white headings */
+  --text-body: #94A3B8;            /* Slate readable body text */
+  --text-muted: #64748B;           /* Muted slate text */
+  
+  --color-primary: #38BDF8;        /* Electric cyan primary CTA & highlight */
+  --color-primary-hover: #0EA5E9;  /* Deepened cyan hover */
+  --color-primary-text: #090B10;   /* High-contrast dark text on cyan button */
+  
+  --color-accent: #06B6D4;         /* Supporting cyan */
+  --color-accent-subtle: rgba(6, 182, 212, 0.12);
+  --color-brand-yellow: #FBBF24;   /* Subtle sunshine gold brand accent */
+  
+  /* Semantic Severities (Dark Luxury) */
+  --severity-critical: #F87171;
+  --severity-critical-bg: rgba(239, 68, 68, 0.14);
+  --severity-critical-border: rgba(239, 68, 68, 0.3);
+  
+  --severity-high: #FB923C;
+  --severity-high-bg: rgba(249, 115, 22, 0.14);
+  --severity-high-border: rgba(249, 115, 22, 0.3);
+  
+  --severity-medium: #FBBF24;
+  --severity-medium-bg: rgba(245, 158, 11, 0.14);
+  --severity-medium-border: rgba(245, 158, 11, 0.3);
+  
+  --severity-low: #4ADE80;
+  --severity-low-bg: rgba(34, 197, 94, 0.14);
+  --severity-low-border: rgba(34, 197, 94, 0.3);
+  
+  --severity-info: #38BDF8;
+  --severity-info-bg: rgba(56, 189, 248, 0.14);
+  --severity-info-border: rgba(56, 189, 248, 0.3);
+
+  /* Remediation Outcomes */
+  --outcome-clean: #4ADE80;
+  --outcome-clean-bg: rgba(74, 222, 128, 0.15);
+  --outcome-warnings: #2DD4BF;
+  --outcome-warnings-bg: rgba(45, 212, 191, 0.15);
+  --outcome-partial: #FBBF24;
+  --outcome-partial-bg: rgba(251, 191, 36, 0.15);
+  --outcome-regressed: #FB7185;
+  --outcome-regressed-bg: rgba(251, 113, 133, 0.15);
+  --outcome-broken: #F87171;
+  --outcome-broken-bg: rgba(248, 113, 113, 0.15);
+
+  /* Ambient Glow & Grid */
+  --glow-ambient: rgba(56, 189, 248, 0.12);
+  --grid-line-color: rgba(56, 189, 248, 0.035);
+}
+
+/* Technical Subtle Background Grid Pattern */
+.bg-tech-grid {
+  background-color: var(--bg-page);
+  background-image: linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px),
+                    linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Glassmorphism Classes */
+.glass-surface {
+  background-color: var(--bg-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-surface-elevated {
+  background-color: var(--bg-surface-elevated);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Cyan Glow Shadows */
+.glow-cyan-sm {
+  box-shadow: 0 0 20px -3px var(--glow-ambient);
+}
+
+.glow-cyan-md {
+  box-shadow: 0 0 35px -5px var(--glow-ambient);
+}
+
+.glow-cyan-lg {
+  box-shadow: 0 0 50px -10px rgba(56, 189, 248, 0.22);
+}
+
+/* Editorial & Technical Typography Utilities */
+.font-heading {
+  font-family: 'Merriweather', Georgia, serif;
+}
+
+.font-editorial {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.font-code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
