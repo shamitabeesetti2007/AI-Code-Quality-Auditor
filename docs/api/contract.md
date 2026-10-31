@@ -1,7 +1,7 @@
 ﻿# API Contract
 
 **Project:** AI Code Quality Auditor
-**Status:** Draft — B1 authentication contract; B2 endpoints pending
+**Status:** B1 authentication and B2 submission/analysis contract
 **Base path:** `/api/v1`
 
 ## 1. Conventions
@@ -17,6 +17,9 @@
   state-changing requests protected by Spring Security.
 - Errors use `application/problem+json` following RFC 7807 conventions.
 - Authentication responses must not be cached.
+- Submission and analysis resources are scoped to the authenticated user.
+- Submission source code is returned only by the individual submission detail
+  response, which uses `Cache-Control: no-store`.
 
 ## 2. Authentication
 
@@ -210,6 +213,8 @@ Expected status codes include:
 | `403` | Authenticated but not authorized, or applicable security rejection |
 | `404` | Resource not found |
 | `409` | Duplicate registration or conflicting state |
+| `413` | Request payload exceeds the allowed source size |
+| `422` | Unsupported language, origin, or clearly non-Java source |
 | `429` | Rate limit exceeded |
 | `500` | Unexpected server error |
 
@@ -221,7 +226,7 @@ Responses must not expose stack traces, password hashes, raw refresh tokens, or 
 - Configure the backend allowlist as comma-separated exact origins in
   `APP_ALLOWED_ORIGINS` (bound to `app.security.allowed-origins`).
 - Never combine wildcard origins with credentialed requests.
-- Credentialed API CORS requests allow only `GET`, `POST`, and `PATCH`, with
+- Credentialed API CORS requests allow `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`, with
   the `Authorization`, `Content-Type`, and `X-XSRF-TOKEN` request headers.
 - Configure the frontend to use `credentials: 'include'` for cookie-based requests.
 - During development, use the Vite proxy for `/api` requests.
@@ -232,7 +237,83 @@ Responses must not expose stack traces, password hashes, raw refresh tokens, or 
 
 ## 7. Code Analysis and Submissions
 
-B2 submission and analysis endpoints remain pending specification. Their request schemas, response schemas, validation rules, ownership rules, and error cases must be agreed before implementation.
+Submission and analysis routes require an authenticated user and the CSRF
+cookie/header pair on state-changing requests. Resource owners are derived
+only from the authenticated principal. A request for another user's resource
+returns `404 Not Found`.
+
+### 7.1 Create submission
+
+**Request:** `POST /api/v1/submissions/`
+
+```json
+{
+  "title": "Example",
+  "language": "JAVA",
+  "originType": "HUMAN",
+  "sourceCode": "class Example {}",
+  "autoAnalyze": true
+}
+```
+
+`autoAnalyze` defaults to `true`. Supported `language` is currently `JAVA`.
+Client origins are `HUMAN`, `AI_GENERATED`, and `AI_ASSISTED`;
+`AI_REMEDIATED` is reserved for trusted internal workflows. User-declared AI
+provenance is never marked verified by this API.
+
+Titles are required and limited to 120 characters. Source is required,
+nonblank, and limited to 100,000 UTF-8 bytes after a leading UTF-8 BOM is
+removed and CRLF/CR line endings are normalized to LF. A SHA-256 hash is
+calculated over that normalized content. Logical LOC excludes blank lines
+and obvious comment-only lines; it is an approximation, not a syntax-aware
+Java measurement. Clearly recognizable non-Java source and unsupported
+languages return `422 Unprocessable Content`. Java syntax errors are not
+rejected at submission time.
+
+Success: `201 Created`. The response contains a source-free submission
+summary and, when automatic analysis is enabled, the newly queued analysis
+run. Source code is not echoed in this response.
+
+### 7.2 List, read, update, and delete submissions
+
+- `GET /api/v1/submissions?page=0&size=20` lists only the caller's submissions,
+  newest first. `size` is limited to 1–100. The response is
+  `{ "items": [], "page": 0, "size": 20, "totalItems": 0, "totalPages": 0 }`.
+  List items never contain source code.
+- `GET /api/v1/submissions/{submissionId}` returns the caller's submission,
+  including source code. The response must have `Cache-Control: no-store`.
+- `PUT /api/v1/submissions/{submissionId}` accepts `title` and `sourceCode`,
+  recalculates normalized source hash and logical LOC, and returns a
+  source-free summary.
+- `DELETE /api/v1/submissions/{submissionId}` deletes the owned submission
+  and its associated analysis runs, metrics, and findings; success is
+  `204 No Content`.
+
+### 7.3 Analysis runs
+
+- `POST /api/v1/submissions/{submissionId}/analysis-runs` manually queues a
+  run for an owned submission.
+- `GET /api/v1/submissions/{submissionId}/analysis-runs` lists only runs for
+  an owned submission, newest first.
+- `GET /api/v1/analysis-runs/{runId}` returns an owned run with persisted
+  metrics and findings.
+
+New runs start in `QUEUED`. Supported lifecycle statuses are `QUEUED`,
+`PARSING`, `ANALYZING`, `SCORING`, `COMPLETED`, `PARTIAL`, `PARSE_FAILED`,
+and `FAILED`. `COMPLETED`, `PARTIAL`, `PARSE_FAILED`, and `FAILED` are terminal.
+Only one active run may exist per submission. A request to create a second
+active run returns `409 Conflict`. The current backend creates queued runs
+only; analyzer execution is not yet connected.
+Each newly created run captures its submission's normalized source and
+SHA-256 hash. The snapshot is immutable and is not included in API responses;
+the run summary includes `sourceHash`. Runs created before this change retain
+`null` for the source snapshot and hash rather than being attributed to the
+submission's current source.
+
+Source-code responses use no-store caching. All errors use
+`application/problem+json`; `413` indicates the source byte limit was
+exceeded, `422` indicates an unsupported language, origin, or clearly
+non-Java source, and `409` indicates an active analysis run conflict.
 
 ## 8. Contract Change Process
 

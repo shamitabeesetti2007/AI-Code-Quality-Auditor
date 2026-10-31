@@ -4,8 +4,7 @@ info:
   title: AI Code Quality Auditor API
   version: 1.0.0
   description: >
-    API contract for authentication and security. B2 submission and analysis
-    endpoints will be specified separately before implementation.
+    API contract for authentication, submissions, and analysis-run persistence.
 
 servers:
   - url: http://localhost:8080
@@ -18,6 +17,10 @@ tags:
     description: Current-user profile and account information.
   - name: Administration
     description: Administrator-only account and role management.
+  - name: Submissions
+    description: Owner-scoped Java code submissions.
+  - name: Analysis
+    description: Queued analysis runs and persisted analyzer results.
   - name: Operations
     description: Application health and operational endpoints.
 
@@ -258,6 +261,234 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/submissions:
+    post:
+      tags: [Submissions]
+      operationId: createSubmission
+      summary: Create a code submission
+      description: >
+        Normalizes a leading UTF-8 BOM and CRLF/CR line endings before hashing.
+        Client-supplied AI_REMEDIATED provenance is not allowed. The optional
+        autoAnalyze field defaults to true and creates a QUEUED run only.
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubmissionRequest'
+      responses:
+        '201':
+          description: Submission created; source code is not echoed
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedSubmission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    get:
+      tags: [Submissions]
+      operationId: listSubmissions
+      summary: List the caller's submissions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Source-free submission page, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/submissions/{submissionId}:
+    parameters:
+      - name: submissionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Submissions]
+      operationId: getSubmission
+      summary: Get an owned submission including its source
+      description: Returns source code with Cache-Control: no-store.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Owned submission detail
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Submissions]
+      operationId: updateSubmission
+      summary: Update an owned submission's title and source
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubmissionRequest'
+      responses:
+        '200':
+          description: Updated source-free submission summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Submissions]
+      operationId: deleteSubmission
+      summary: Delete an owned submission and its analysis data
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: Submission and dependent analysis data deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions/{submissionId}/analysis-runs:
+    parameters:
+      - name: submissionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Analysis]
+      operationId: createAnalysisRun
+      summary: Queue an analysis run for an owned submission
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '201':
+          description: Analysis run created in QUEUED state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Analysis]
+      operationId: listAnalysisRuns
+      summary: List analysis runs for an owned submission
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Analysis runs, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnalysisRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/analysis-runs/{runId}:
+    get:
+      tags: [Analysis]
+      operationId: getAnalysisRun
+      summary: Get an owned analysis run and its metrics and findings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis run result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /actuator/health:
     get:
       security: []
@@ -360,6 +591,245 @@ components:
           type: string
           enum: [USER, RESEARCHER, ADMIN]
 
+    CreateSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [title, language, originType, sourceCode]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        language:
+          type: string
+          enum: [JAVA]
+        originType:
+          type: string
+          enum: [HUMAN, AI_GENERATED, AI_ASSISTED]
+        sourceCode:
+          type: string
+          minLength: 1
+          description: Maximum 100,000 UTF-8 bytes after source normalization.
+        autoAnalyze:
+          type: boolean
+          default: true
+
+    UpdateSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [title, sourceCode]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        sourceCode:
+          type: string
+          minLength: 1
+          description: Maximum 100,000 UTF-8 bytes after source normalization.
+
+    Submission:
+      type: object
+      required:
+        - submissionId
+        - title
+        - language
+        - originType
+        - provenanceVerified
+        - contentHash
+        - logicalLoc
+        - createdAt
+        - updatedAt
+      properties:
+        submissionId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        language:
+          type: string
+          enum: [JAVA]
+        originType:
+          type: string
+          enum: [HUMAN, AI_GENERATED, AI_ASSISTED, AI_REMEDIATED]
+        provenanceVerified:
+          type: boolean
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        logicalLoc:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SubmissionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Submission'
+        - type: object
+          required: [sourceCode]
+          properties:
+            sourceCode:
+              type: string
+
+    SubmissionPage:
+      type: object
+      required: [items, page, size, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Submission'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    CreatedSubmission:
+      type: object
+      required: [submission, autoAnalysisRun]
+      properties:
+        submission:
+          $ref: '#/components/schemas/Submission'
+        autoAnalysisRun:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AnalysisRun'
+
+    AnalysisRun:
+      type: object
+      required: [runId, submissionId, status, createdAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        submissionId:
+          type: string
+          format: uuid
+        sourceHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+          description: SHA-256 hash of the immutable source snapshot analyzed.
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PARSING
+            - ANALYZING
+            - SCORING
+            - COMPLETED
+            - PARTIAL
+            - PARSE_FAILED
+            - FAILED
+        analyzerVersion:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        errorSummary:
+          type: string
+          nullable: true
+
+    AnalysisRunDetail:
+      type: object
+      required: [run, metrics, findings]
+      properties:
+        run:
+          $ref: '#/components/schemas/AnalysisRun'
+        score:
+          type: number
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisMetric'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisFinding'
+
+    AnalysisMetric:
+      type: object
+      required: [metricId, dimension, metricKey, numericValue, metadata]
+      properties:
+        metricId:
+          type: string
+          format: uuid
+        dimension:
+          type: string
+        metricKey:
+          type: string
+        numericValue:
+          type: number
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AnalysisFinding:
+      type: object
+      required: [findingId, ruleId, fingerprint, message, metadata]
+      properties:
+        findingId:
+          type: string
+          format: uuid
+        ruleId:
+          type: string
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        severity:
+          type: string
+          enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL]
+          nullable: true
+        message:
+          type: string
+        description:
+          type: string
+          nullable: true
+        filePath:
+          type: string
+          nullable: true
+        startLine:
+          type: integer
+          nullable: true
+        startColumn:
+          type: integer
+          nullable: true
+        endLine:
+          type: integer
+          nullable: true
+        endColumn:
+          type: integer
+          nullable: true
+        cweId:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
     UserProfile:
       type: object
       additionalProperties: false
@@ -439,6 +909,18 @@ components:
             $ref: '#/components/schemas/Problem'
     Conflict:
       description: Request conflicts with the current resource state
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: Source code exceeds the UTF-8 byte limit
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unprocessable:
+      description: Unsupported language, origin, or clearly non-Java source
       content:
         application/problem+json:
           schema:
