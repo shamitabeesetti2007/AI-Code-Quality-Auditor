@@ -1,26 +1,43 @@
 package com.auditor.user;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.server.ResponseStatusException;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @SpringBootTest
+@Testcontainers
 class AdminBootstrapIntegrationTest {
 
     private static final String TEST_DATABASE =
             "auditor_v3_flyway_test";
+
+    @Container
+    private static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:16")
+                    .withDatabaseName(TEST_DATABASE)
+                    .withUsername("auditor")
+                    .withPassword("auditor");
+
+    @DynamicPropertySource
+    static void configureDataSource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
 
     @Autowired
     private RoleManagementService roleManagementService;
@@ -31,7 +48,6 @@ class AdminBootstrapIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    private final List<UUID> createdUserIds = new ArrayList<>();
     private String rollbackConstraint;
 
     @BeforeEach
@@ -52,26 +68,6 @@ class AdminBootstrapIntegrationTest {
                                 + "WHERE event_type = 'ADMIN_BOOTSTRAP'",
                         Integer.class),
                 "Bootstrap integration test requires a fresh disposable database.");
-    }
-
-    @AfterEach
-    void cleanUpUserFixtures() {
-        if (rollbackConstraint != null) {
-            jdbcTemplate.execute(
-                    "ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS "
-                            + rollbackConstraint);
-            rollbackConstraint = null;
-        }
-        for (UUID userId : createdUserIds) {
-            jdbcTemplate.update(
-                    """
-                    UPDATE app_user
-                    SET role = 'USER', account_status = 'ACTIVE'
-                    WHERE user_id = ?
-                    """,
-                    userId);
-        }
-        createdUserIds.clear();
     }
 
     @Test
@@ -154,9 +150,7 @@ class AdminBootstrapIntegrationTest {
                 "bootstrap-it-" + UUID.randomUUID() + "@example.com",
                 "test-password-hash",
                 "Bootstrap integration test");
-        AppUser saved = userRepository.saveAndFlush(user);
-        createdUserIds.add(saved.getUserId());
-        return saved;
+        return userRepository.saveAndFlush(user);
     }
 
     private String roleFor(UUID userId) {

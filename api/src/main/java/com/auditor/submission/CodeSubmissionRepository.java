@@ -16,6 +16,10 @@ public interface CodeSubmissionRepository
             UUID submissionId,
             UUID ownerUserId);
 
+    boolean existsBySubmissionIdAndOwner_UserId(
+            UUID submissionId,
+            UUID ownerUserId);
+
     <S extends CodeSubmission> S save(S submission);
 
     <S extends CodeSubmission> S saveAndFlush(S submission);

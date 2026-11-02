@@ -17,7 +17,7 @@ public record AnalysisRunDetailResponse(
             List<AnalysisMetricResponse> metrics,
             List<AnalysisFindingResponse> findings) {
         return new AnalysisRunDetailResponse(
-                AnalysisRunSummaryResponse.from(run),
+                AnalysisRunSummaryResponse.from(run).withSafeErrorSummary(),
                 run.getScore(),
                 run.getGrade(),
                 metrics,

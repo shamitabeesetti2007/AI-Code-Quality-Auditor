@@ -446,18 +446,36 @@ paths:
     get:
       tags: [Analysis]
       operationId: listAnalysisRuns
-      summary: List analysis runs for an owned submission
+      summary: Get paginated analysis history for an owned submission
       security:
         - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: Zero-based page index (default 0)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          description: Page size, from 1 to 100 (default 20)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
       responses:
         '200':
-          description: Analysis runs, newest first
+          description: Source-free analysis history ordered newest first, then run ID descending
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AnalysisRun'
+                $ref: '#/components/schemas/AnalysisRunHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -484,6 +502,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisRunDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions/{submissionId}/analysis-runs/{runId}/report:
+    get:
+      tags: [Analysis]
+      operationId: getAnalysisRunReport
+      summary: Get the source-free report for a run on an owned submission
+      description: >
+        Metrics and finding counts describe persisted results only.
+        dataAvailability distinguishes complete, partial, and unavailable
+        analysis results. Error summaries are safe status-based text.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: submissionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Source-free analysis report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions/{submissionId}/analysis-runs/compare:
+    get:
+      tags: [Analysis]
+      operationId: compareAnalysisRuns
+      summary: Compare two persisted runs for an owned submission
+      description: >
+        Score difference is target minus baseline and does not itself imply
+        improved code quality. Metrics match by dimension and metricKey.
+        Findings match by fingerprint; duplicate, null, or blank fingerprints
+        are treated as unmatched. Unavailable analysis results are not zeros.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: submissionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: baselineRunId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: targetRunId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Source-free analysis run comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunComparison'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -694,6 +787,245 @@ components:
         totalPages:
           type: integer
 
+    AnalysisRunHistoryPage:
+      type: object
+      required: [items, page, size, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisRunHistoryItem'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    AnalysisRunHistoryItem:
+      type: object
+      required: [runId, submissionId, status, createdAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        submissionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PARSING
+            - ANALYZING
+            - SCORING
+            - COMPLETED
+            - PARTIAL
+            - PARSE_FAILED
+            - FAILED
+        score:
+          type: number
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorSummary:
+          type: string
+          nullable: true
+          description: Generic status-based summary; never raw parser or analyzer details.
+
+    AnalysisReport:
+      type: object
+      required: [run, dataAvailability, metricsByDimension, findingsSummary, findings]
+      properties:
+        run:
+          $ref: '#/components/schemas/AnalysisReportRunOverview'
+        dataAvailability:
+          type: string
+          enum: [COMPLETE, PARTIAL, UNAVAILABLE]
+        metricsByDimension:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/AnalysisMetric'
+          description: Persisted metrics grouped by their stored dimension.
+        findingsSummary:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AnalysisReportFindingsSummary'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisFinding'
+
+    AnalysisReportRunOverview:
+      type: object
+      required: [runId, submissionId, status, createdAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        submissionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED, PARSING, ANALYZING, SCORING, COMPLETED, PARTIAL, PARSE_FAILED, FAILED]
+        score:
+          type: number
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorSummary:
+          type: string
+          nullable: true
+
+    AnalysisReportFindingsSummary:
+      type: object
+      required: [totalCount, countsBySeverity, unclassifiedSeverityCount]
+      properties:
+        totalCount:
+          type: integer
+          format: int64
+          description: Number of persisted findings, not a claim of complete coverage.
+        countsBySeverity:
+          type: object
+          required: [INFO, LOW, MEDIUM, HIGH, CRITICAL]
+          properties:
+            INFO:
+              type: integer
+              format: int64
+            LOW:
+              type: integer
+              format: int64
+            MEDIUM:
+              type: integer
+              format: int64
+            HIGH:
+              type: integer
+              format: int64
+            CRITICAL:
+              type: integer
+              format: int64
+        unclassifiedSeverityCount:
+          type: integer
+          format: int64
+
+    AnalysisRunComparison:
+      type: object
+      required: [submissionId, baseline, target, scoreDifference, comparisonAvailability, metrics, findings]
+      properties:
+        submissionId: { type: string, format: uuid }
+        baseline: { $ref: '#/components/schemas/ComparisonRunOverview' }
+        target: { $ref: '#/components/schemas/ComparisonRunOverview' }
+        scoreDifference:
+          type: number
+          nullable: true
+          description: Target score minus baseline score; null when either score is unavailable.
+        comparisonAvailability:
+          type: string
+          enum: [COMPLETE, PARTIAL]
+        metrics: { $ref: '#/components/schemas/ComparisonMetrics' }
+        findings: { $ref: '#/components/schemas/ComparisonFindings' }
+
+    ComparisonRunOverview:
+      type: object
+      required: [runId, status, dataAvailability]
+      properties:
+        runId: { type: string, format: uuid }
+        status: { type: string, enum: [QUEUED, PARSING, ANALYZING, SCORING, COMPLETED, PARTIAL, PARSE_FAILED, FAILED] }
+        score: { type: number, nullable: true }
+        grade: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        dataAvailability: { type: string, enum: [COMPLETE, PARTIAL, UNAVAILABLE] }
+
+    ComparisonMetrics:
+      type: object
+      required: [dataAvailability, items]
+      properties:
+        dataAvailability: { type: string, enum: [COMPLETE, PARTIAL, UNAVAILABLE] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [dimension, metricKey, change]
+            properties:
+              dimension: { type: string }
+              metricKey: { type: string }
+              baselineValue: { type: number, nullable: true }
+              targetValue: { type: number, nullable: true }
+              difference: { type: number, nullable: true }
+              change: { type: string, enum: [ADDED, REMOVED, RETAINED] }
+
+    ComparisonFindings:
+      type: object
+      required: [dataAvailability, items, counts, countsBySeverity, unclassifiedSeverityCounts]
+      properties:
+        dataAvailability: { type: string, enum: [COMPLETE, PARTIAL, UNAVAILABLE] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [change, ruleId, message]
+            properties:
+              change: { type: string, enum: [ADDED, RESOLVED, PERSISTING] }
+              ruleId: { type: string }
+              fingerprint: { type: string, nullable: true }
+              message: { type: string }
+              severity: { type: string, nullable: true, enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL] }
+              filePath: { type: string, nullable: true }
+              startLine: { type: integer, nullable: true }
+              startColumn: { type: integer, nullable: true }
+              endLine: { type: integer, nullable: true }
+              endColumn: { type: integer, nullable: true }
+        counts:
+          type: object
+          nullable: true
+          description: Null when either run lacks usable comparison data.
+          additionalProperties: { type: integer, format: int64 }
+        countsBySeverity:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer, format: int64 }
+        unclassifiedSeverityCounts:
+          type: object
+          nullable: true
+          description: Counts of findings with null severity, keyed by change type.
+          additionalProperties: { type: integer, format: int64 }
+
     CreatedSubmission:
       type: object
       required: [submission, autoAnalysisRun]
@@ -748,6 +1080,7 @@ components:
         errorSummary:
           type: string
           nullable: true
+          description: Generic status-based summary; never raw parser or analyzer details.
 
     AnalysisRunDetail:
       type: object
@@ -785,7 +1118,29 @@ components:
           type: number
         metadata:
           type: object
-          additionalProperties: true
+          description: Sanitized analyzer fields only; arbitrary analyzer metadata is omitted.
+          additionalProperties: false
+          properties:
+            analyzerId: { type: string }
+            sourceName: { type: string, description: Safe basename only. }
+            startLine: { type: integer }
+            startColumn: { type: integer }
+            endLine: { type: integer }
+            endColumn: { type: integer }
+            aggregation: { type: string, enum: [maximum] }
+            numericValue: { type: number }
+            observations:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  sourceName: { type: string }
+                  startLine: { type: integer }
+                  startColumn: { type: integer }
+                  endLine: { type: integer }
+                  endColumn: { type: integer }
+                  numericValue: { type: number }
 
     AnalysisFinding:
       type: object
@@ -828,7 +1183,11 @@ components:
           nullable: true
         metadata:
           type: object
-          additionalProperties: true
+          description: Sanitized scoring inputs only; arbitrary analyzer metadata is omitted.
+          additionalProperties: false
+          properties:
+            measuredValue: { type: number }
+            threshold: { type: number }
 
     UserProfile:
       type: object

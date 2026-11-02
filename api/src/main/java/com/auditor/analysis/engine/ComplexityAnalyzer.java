@@ -28,6 +28,12 @@ public class ComplexityAnalyzer implements Analyzer {
     public static final String ANALYZER_ID = "java-complexity";
     public static final String CYCLOMATIC_RULE_ID = "JAVA-CYCLOMATIC-COMPLEXITY";
     public static final String COGNITIVE_RULE_ID = "JAVA-COGNITIVE-COMPLEXITY";
+    public static final String CYCLOMATIC_METRIC_KEY = "cyclomatic.complexity";
+    public static final String COGNITIVE_METRIC_KEY = "cognitive.complexity";
+    public static final String CYCLOMATIC_AGGREGATE_METRIC_KEY =
+            "cyclomatic.complexity.aggregate";
+    public static final String COGNITIVE_AGGREGATE_METRIC_KEY =
+            "cognitive.complexity.aggregate";
 
     private final ComplexityThresholds thresholds;
 
@@ -67,9 +73,9 @@ public class ComplexityAnalyzer implements Analyzer {
             }
 
             SourceLocation typeLocation = SourceLocation.of(context.input().sourceName(), type);
-            metrics.add(new Metric(ANALYZER_ID, "cyclomatic.complexity.aggregate",
+            metrics.add(new Metric(ANALYZER_ID, CYCLOMATIC_AGGREGATE_METRIC_KEY,
                     cyclomaticTotal, typeLocation));
-            metrics.add(new Metric(ANALYZER_ID, "cognitive.complexity.aggregate",
+            metrics.add(new Metric(ANALYZER_ID, COGNITIVE_AGGREGATE_METRIC_KEY,
                     cognitiveTotal, typeLocation));
         }
         return new AnalyzerResult(metrics, findings);
@@ -82,8 +88,10 @@ public class ComplexityAnalyzer implements Analyzer {
             List<Metric> metrics,
             List<Finding> findings) {
         SourceLocation location = SourceLocation.of(context.input().sourceName(), callable);
-        metrics.add(new Metric(ANALYZER_ID, "cyclomatic.complexity", value.cyclomatic(), location));
-        metrics.add(new Metric(ANALYZER_ID, "cognitive.complexity", value.cognitive(), location));
+        metrics.add(new Metric(
+                ANALYZER_ID, CYCLOMATIC_METRIC_KEY, value.cyclomatic(), location));
+        metrics.add(new Metric(
+                ANALYZER_ID, COGNITIVE_METRIC_KEY, value.cognitive(), location));
         if (value.cyclomatic() > thresholds.cyclomatic()) {
             findings.add(new Finding(
                     CYCLOMATIC_RULE_ID,

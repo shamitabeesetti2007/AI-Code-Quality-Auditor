@@ -86,6 +86,9 @@ public class SecurityConfig {
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/users/me").authenticated()
+                        .requestMatchers(
+                                "/api/v1/submissions/**",
+                                "/api/v1/analysis-runs/**").authenticated()
                         .anyRequest().denyAll())
                 .build();
     }
@@ -106,7 +109,8 @@ public class SecurityConfig {
 
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
-        configuration.setAllowedMethods(List.of("GET", "POST", "PATCH"));
+        configuration.setAllowedMethods(
+                List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
         configuration.setAllowedHeaders(List.of(
                 "Authorization", "Content-Type", "X-XSRF-TOKEN"));
         configuration.setAllowCredentials(true);

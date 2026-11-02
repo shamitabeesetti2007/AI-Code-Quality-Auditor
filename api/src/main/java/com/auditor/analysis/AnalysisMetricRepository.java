@@ -12,5 +12,13 @@ public interface AnalysisMetricRepository
             UUID runId,
             UUID ownerUserId);
 
+    List<AnalysisMetric>
+            findAllByRun_RunIdAndRun_Owner_UserIdOrderByDimensionAscMetricKeyAsc(
+                    UUID runId,
+                    UUID ownerUserId);
+
+    List<AnalysisMetric> findAllByRun_RunIdInAndRun_Owner_UserIdOrderByRun_RunIdAscDimensionAscMetricKeyAsc(
+            List<UUID> runIds, UUID ownerUserId);
+
     <S extends AnalysisMetric> S save(S metric);
 }

@@ -1,6 +1,7 @@
 package com.auditor.analysis.dto;
 
 import com.auditor.analysis.AnalysisMetric;
+import com.auditor.analysis.AnalysisMetadataSanitizer;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -19,6 +20,6 @@ public record AnalysisMetricResponse(
                 metric.getDimension(),
                 metric.getMetricKey(),
                 metric.getNumericValue(),
-                metric.getMetadata());
+                AnalysisMetadataSanitizer.metric(metric.getMetadata()));
     }
 }

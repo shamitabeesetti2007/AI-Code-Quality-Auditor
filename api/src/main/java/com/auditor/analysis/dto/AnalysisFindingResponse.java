@@ -1,6 +1,7 @@
 package com.auditor.analysis.dto;
 
 import com.auditor.analysis.AnalysisFinding;
+import com.auditor.analysis.AnalysisMetadataSanitizer;
 import com.auditor.analysis.FindingSeverity;
 
 import java.util.Map;
@@ -35,6 +36,6 @@ public record AnalysisFindingResponse(
                 finding.getEndLine(),
                 finding.getEndColumn(),
                 finding.getCweId(),
-                finding.getMetadata());
+                AnalysisMetadataSanitizer.finding(finding.getMetadata()));
     }
 }

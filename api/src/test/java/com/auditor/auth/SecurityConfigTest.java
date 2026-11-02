@@ -4,6 +4,16 @@ import com.auditor.auth.dto.LoginResponse;
 import com.auditor.auth.dto.UserResponse;
 import com.auditor.auth.token.InvalidRefreshTokenException;
 import com.auditor.auth.token.RefreshTokenService;
+import com.auditor.analysis.AnalysisRunController;
+import com.auditor.analysis.AnalysisRunService;
+import com.auditor.submission.SubmissionController;
+import com.auditor.submission.SubmissionService;
+import com.auditor.submission.SubmissionOriginType;
+import com.auditor.submission.SubmissionLanguage;
+import com.auditor.submission.dto.CreateSubmissionRequest;
+import com.auditor.submission.dto.PageResponse;
+import com.auditor.submission.dto.SubmissionDetailResponse;
+import com.auditor.submission.dto.SubmissionResponse;
 import com.auditor.user.AdminUserController;
 import com.auditor.user.AppUser;
 import com.auditor.user.RoleManagementService;
@@ -20,6 +30,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,7 +57,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         AuthController.class,
         CsrfController.class,
         UserController.class,
-        AdminUserController.class
+        AdminUserController.class,
+        SubmissionController.class,
+        AnalysisRunController.class
 }, properties = "app.security.allowed-origins=http://localhost:5173")
 @Import({
         SecurityConfig.class,
@@ -73,6 +86,12 @@ class SecurityConfigTest {
 
     @MockitoBean
     private RoleManagementService roleManagementService;
+
+    @MockitoBean
+    private SubmissionService submissionService;
+
+    @MockitoBean
+    private AnalysisRunService analysisRunService;
 
     @Test
     void csrfEndpointProvisionsCookieAndHeaderToken() throws Exception {
@@ -200,8 +219,144 @@ class SecurityConfigTest {
                           "status": 403,
                           "detail": "Access is denied.",
                           "instance": "/api/v1/not-allowed"
-                        }
-                        """));
+                          }
+                          """));
+    }
+
+    @Test
+    void submissionAndAnalysisEndpointsRequireAuthentication()
+            throws Exception {
+        mockMvc.perform(get("/api/v1/submissions"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get(
+                        "/api/v1/analysis-runs/{runId}", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void submissionWritesRemainProtectedByCsrf() throws Exception {
+        mockMvc.perform(post(
+                        "/api/v1/submissions/{submissionId}/analysis-runs",
+                        UUID.randomUUID())
+                        .with(user(UUID.randomUUID().toString())))
+                .andExpect(status().isForbidden());
+
+        verify(analysisRunService, never())
+                .createQueuedRun(any(), any());
+    }
+
+    @Test
+    void corsAllowsSubmissionPutAndDeleteMethods() throws Exception {
+        mockMvc.perform(options("/api/v1/submissions/" + UUID.randomUUID())
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "PUT"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Access-Control-Allow-Methods",
+                        containsString("PUT")));
+        mockMvc.perform(options("/api/v1/submissions/" + UUID.randomUUID())
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "DELETE"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Access-Control-Allow-Methods",
+                        containsString("DELETE")));
+    }
+
+    @Test
+    void createUsesPrincipalIdentityAndDoesNotReturnSubmittedSource()
+            throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID submissionId = UUID.randomUUID();
+        var response = new SubmissionResponse(
+                submissionId,
+                "Example",
+                SubmissionLanguage.JAVA,
+                SubmissionOriginType.HUMAN,
+                false,
+                "a".repeat(64),
+                1,
+                Instant.now(),
+                Instant.now());
+        when(submissionService.create(
+                eq(ownerId), any(CreateSubmissionRequest.class)))
+                .thenReturn(new SubmissionService.CreatedSubmission(
+                        response, null));
+        CsrfTestToken csrfToken = provisionCsrfToken();
+
+        mockMvc.perform(post("/api/v1/submissions/")
+                        .with(user(ownerId.toString()))
+                        .cookie(csrfToken.cookie())
+                        .header("X-XSRF-TOKEN", csrfToken.value())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Example",
+                                  "language": "JAVA",
+                                  "originType": "HUMAN",
+                                  "sourceCode": "class Example {}",
+                                  "autoAnalyze": false
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(header().string(
+                        HttpHeaders.LOCATION,
+                        "/api/v1/submissions/" + submissionId))
+                .andExpect(jsonPath("$.submission.sourceCode").doesNotExist());
+
+        verify(submissionService).create(
+                eq(ownerId), any(CreateSubmissionRequest.class));
+    }
+
+    @Test
+    void listOmitsSourceWhileDetailReturnsItWithoutCaching() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID submissionId = UUID.randomUUID();
+        Instant now = Instant.now();
+        SubmissionResponse listItem = new SubmissionResponse(
+                submissionId,
+                "Example",
+                SubmissionLanguage.JAVA,
+                SubmissionOriginType.HUMAN,
+                false,
+                "a".repeat(64),
+                1,
+                now,
+                now);
+        when(submissionService.list(ownerId, 0, 20))
+                .thenReturn(new PageResponse<>(
+                        List.of(listItem), 0, 20, 1, 1));
+        when(submissionService.get(ownerId, submissionId))
+                .thenReturn(new SubmissionDetailResponse(
+                        submissionId,
+                        "Example",
+                        SubmissionLanguage.JAVA,
+                        SubmissionOriginType.HUMAN,
+                        false,
+                        "class Example {}",
+                        "a".repeat(64),
+                        1,
+                        now,
+                        now));
+
+        mockMvc.perform(get("/api/v1/submissions")
+                        .with(user(ownerId.toString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].submissionId")
+                        .value(submissionId.toString()))
+                .andExpect(jsonPath("$.items[0].sourceCode").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalItems").value(1));
+
+        mockMvc.perform(get("/api/v1/submissions/{id}", submissionId)
+                        .with(user(ownerId.toString())))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.sourceCode").value("class Example {}"));
+
+        verify(submissionService).list(ownerId, 0, 20);
+        verify(submissionService).get(ownerId, submissionId);
     }
 
     @Test

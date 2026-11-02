@@ -6,6 +6,7 @@ import com.auditor.submission.SubmissionOriginType;
 import com.auditor.user.AppUser;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,6 +52,26 @@ class AnalysisRunTest {
                         Instant.now(),
                         "v1",
                         null));
+    }
+
+    @Test
+    void assignsScoreOnlyWhileScoringAndPreservesScoreEncapsulation() {
+        AnalysisRun run = queuedRun();
+        assertThrows(
+                IllegalStateException.class,
+                () -> run.assignScoreAndGrade(new BigDecimal("90"), "A"));
+
+        Instant now = Instant.now();
+        run.transitionTo(AnalysisRunStatus.PARSING, now, null, null);
+        run.transitionTo(AnalysisRunStatus.ANALYZING, now, null, null);
+        run.transitionTo(AnalysisRunStatus.SCORING, now, null, null);
+        run.assignScoreAndGrade(new BigDecimal("89.50"), "B");
+
+        assertEquals(new BigDecimal("89.50"), run.getScore());
+        assertEquals("B", run.getGrade());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> run.assignScoreAndGrade(new BigDecimal("101"), "A"));
     }
 
     private static AnalysisRun queuedRun() {

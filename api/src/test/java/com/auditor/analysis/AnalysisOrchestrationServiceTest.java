@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -46,7 +47,10 @@ class AnalysisOrchestrationServiceTest {
             submissionRepository);
     private final AnalyzerResultPersistenceService persistenceService =
             new AnalyzerResultPersistenceService(
-                    runRepository, metricRepository, findingRepository);
+                    new AnalyzerResultPersistenceTransaction(
+                            runRepository, metricRepository, findingRepository,
+                            new AnalysisScoringService(new AnalysisScoringPolicy())),
+                    runService);
     private final AnalysisOrchestrationService service =
             new AnalysisOrchestrationService(
                     runRepository,
@@ -111,7 +115,9 @@ class AnalysisOrchestrationServiceTest {
         service.analyze(run.getRunId(), owner.getUserId());
 
         assertEquals(AnalysisRunStatus.PARSE_FAILED, run.getStatus());
-        assertEquals("Unable to parse source.", run.getErrorSummary());
+        assertEquals("The Java source could not be parsed.", run.getErrorSummary());
+        assertNull(run.getScore());
+        assertNull(run.getGrade());
         verify(codeAnalyzer).analyze("class Snapshot {}\n");
         verify(runRepository, org.mockito.Mockito.times(2)).save(run);
     }
@@ -127,7 +133,9 @@ class AnalysisOrchestrationServiceTest {
         service.analyze(run.getRunId(), owner.getUserId());
 
         assertEquals(AnalysisRunStatus.PARTIAL, run.getStatus());
-        assertEquals("Some checks were unavailable.", run.getErrorSummary());
+        assertEquals("Analysis completed with unavailable checks.", run.getErrorSummary());
+        assertNull(run.getScore());
+        assertNull(run.getGrade());
         verify(runRepository, org.mockito.Mockito.times(2)).save(run);
     }
 

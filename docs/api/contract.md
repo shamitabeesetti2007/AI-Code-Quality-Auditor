@@ -293,10 +293,60 @@ run. Source code is not echoed in this response.
 
 - `POST /api/v1/submissions/{submissionId}/analysis-runs` manually queues a
   run for an owned submission.
-- `GET /api/v1/submissions/{submissionId}/analysis-runs` lists only runs for
-  an owned submission, newest first.
+- `GET /api/v1/submissions/{submissionId}/analysis-runs?page=0&size=20` returns
+  a paginated, source-free history for an owned submission. The authenticated
+  user must own the submission; inaccessible submissions return `404`.
+  Results are ordered by `createdAt` descending and `runId` descending as a
+  stable tie-breaker. Page numbers are zero-based and `size` is limited to
+  1–100. The response is
+  `{ "items": [], "page": 0, "size": 20, "totalItems": 0, "totalPages": 0 }`.
+  History items include run/submission IDs, status, score, grade, timestamps,
+  and only a safe status-based error summary; they never include source code.
 - `GET /api/v1/analysis-runs/{runId}` returns an owned run with persisted
   metrics and findings.
+- `GET /api/v1/submissions/{submissionId}/analysis-runs/{runId}/report`
+  returns the source-free report for a run belonging to the specified
+  submission and authenticated user. The response includes a run overview,
+  persisted metrics grouped by their stored dimension, persisted finding
+  details, and counts by severity plus an unclassified-severity count.
+  `dataAvailability` is `COMPLETE` for completed runs, `PARTIAL` for partial
+  runs, and `UNAVAILABLE` for queued, parsing, analyzing, scoring, failed, and
+  parse-failed runs. Metrics and finding counts describe persisted records
+  only; partial or unavailable results must not be interpreted as complete
+  analysis. For unavailable runs, `findingsSummary` is `null` rather than
+  implying that no findings were detected. Failure summaries are generic and
+  never include exception details.
+  A submission not owned by the caller, a run not found, or a run belonging to
+  another submission returns `404`.
+- `GET /api/v1/submissions/{submissionId}/analysis-runs/compare?baselineRunId={uuid}&targetRunId={uuid}`
+  compares two persisted runs for the owned submission. Both IDs are required,
+  must differ, and both runs must belong to this submission and caller. The
+  response includes run overview fields, `scoreDifference` (target minus
+  baseline, null if either score is absent), `comparisonAvailability`, metric
+  changes, and finding changes. A positive score difference means the score
+  increased; it does not by itself claim that code quality improved.
+  Metrics match by the stable `(dimension, metricKey)` pair. Numeric persisted
+  values are compared; added/removed metrics have a null difference. Findings
+  match by fingerprint. A fingerprint occurring more than once within either
+  run is treated as unmatched; null or blank fingerprints are also unmatched,
+  preventing incorrect merges. Findings include added, resolved, and persisting
+  classifications, counts, and severity counts. Results are ordered stably.
+  Null-severity findings are included in `unclassifiedSeverityCounts` keyed by
+  change type. When either run's result is unavailable for the findings
+  dimension, its counts are `null` and no added/resolved changes are inferred
+  from the unavailable side. Analyzer metadata in report/detail responses is
+  allowlisted to known metric location/scoring fields; arbitrary metadata is
+  omitted and source paths are reduced to a safe basename.
+  Complete runs provide complete dimensions, partial runs provide partial
+  dimensions, and queued/running/failed/parse-failed runs have unavailable
+  dimensions; unavailable data is not interpreted as zero findings or metrics.
+  Any non-completed run makes the overall comparison partial. Source snapshots
+  and internal error details are never returned. Identical IDs return `400`;
+  inaccessible submissions or missing/cross-submission runs return `404`.
+
+All analysis-run endpoints require authentication. Invalid page numbers or
+page sizes and identical comparison run IDs return `400`; unauthenticated
+requests return `401`.
 
 New runs start in `QUEUED`. Supported lifecycle statuses are `QUEUED`,
 `PARSING`, `ANALYZING`, `SCORING`, `COMPLETED`, `PARTIAL`, `PARSE_FAILED`,

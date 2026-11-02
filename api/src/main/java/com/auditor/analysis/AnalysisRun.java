@@ -157,6 +157,25 @@ public class AnalysisRun {
         }
     }
 
+    public void assignScoreAndGrade(BigDecimal score, String grade) {
+        if (status != AnalysisRunStatus.SCORING) {
+            throw new IllegalStateException(
+                    "A score can only be assigned while a run is scoring.");
+        }
+        if (score == null
+                || score.signum() < 0
+                || score.compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new IllegalArgumentException(
+                    "Analysis score must be between 0 and 100.");
+        }
+        if (grade == null
+                || !Set.of("A", "B", "C", "D", "F").contains(grade)) {
+            throw new IllegalArgumentException("Analysis grade is invalid.");
+        }
+        this.score = score;
+        this.grade = grade;
+    }
+
     public UUID getRunId() {
         return runId;
     }

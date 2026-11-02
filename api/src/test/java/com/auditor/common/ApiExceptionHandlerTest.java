@@ -3,6 +3,7 @@ package com.auditor.common;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -68,6 +69,21 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
+    void duplicateActiveAnalysisReturnsConflictProblem() throws Exception {
+        mockMvc.perform(get("/test/active-run-conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(
+                        MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {
+                          "title": "Conflict",
+                          "status": 409,
+                          "detail": "An analysis run is already active for this submission."
+                        }
+                        """));
+    }
+
+    @Test
     void unreadableRequestReturnsSanitizedProblem() throws Exception {
         mockMvc.perform(post("/test/body")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -95,6 +111,16 @@ class ApiExceptionHandlerTest {
         String illegalArgument() {
             throw new IllegalArgumentException(
                     "sensitive implementation detail");
+        }
+
+        @GetMapping("/test/active-run-conflict")
+        String activeRunConflict() {
+            throw new DataIntegrityViolationException(
+                    "duplicate",
+                    new org.hibernate.exception.ConstraintViolationException(
+                            "duplicate",
+                            new java.sql.SQLException("duplicate"),
+                            "uq_analysis_run_one_active_per_submission"));
         }
 
         @PostMapping("/test/body")

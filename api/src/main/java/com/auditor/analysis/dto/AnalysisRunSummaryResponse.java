@@ -29,4 +29,10 @@ public record AnalysisRunSummaryResponse(
                 run.getCreatedAt(),
                 run.getErrorSummary());
     }
+
+    public AnalysisRunSummaryResponse withSafeErrorSummary() {
+        return new AnalysisRunSummaryResponse(runId, submissionId, sourceHash, status,
+                analyzerVersion, startedAt, completedAt, createdAt,
+                AnalysisRunErrorSummary.safeFor(status));
+    }
 }
