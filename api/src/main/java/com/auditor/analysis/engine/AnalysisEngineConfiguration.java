@@ -15,6 +15,9 @@ public class AnalysisEngineConfiguration {
     public AnalyzerRegistry analyzerRegistry() {
         return new AnalyzerRegistry(
                 new JavaSourceParser(),
-                List.of(new ComplexityAnalyzer()));
+                List.of(
+                        new ComplexityAnalyzer(),
+                        new MaintainabilityAnalyzer()
+                ));
     }
 }

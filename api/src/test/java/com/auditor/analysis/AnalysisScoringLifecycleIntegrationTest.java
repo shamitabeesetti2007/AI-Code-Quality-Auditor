@@ -74,9 +74,14 @@ class AnalysisScoringLifecycleIntegrationTest {
         assertNotNull(detail.grade());
         assertTrue(detail.score().signum() >= 0);
         assertTrue(detail.score().compareTo(java.math.BigDecimal.valueOf(100)) <= 0);
-        assertEquals(4, detail.metrics().size());
+                assertEquals(12, detail.metrics().size());
         assertEquals(2, detail.metrics().stream()
-                .filter(metric -> metric.metadata().containsKey("observations"))
+                .filter(metric -> metric.metadata().get("observations")
+                        instanceof java.util.List<?> observations
+                        && observations.stream().anyMatch(observation ->
+                                observation instanceof java.util.Map<?, ?> values
+                                        && "java-complexity".equals(
+                                                values.get("analyzerId"))))
                 .count());
         assertNotNull(detail.run().completedAt());
     }
