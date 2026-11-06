@@ -1,3 +1,4 @@
+
 package com.auditor.analysis;
 
 import com.auditor.analysis.contract.AnalysisEngineResult;
@@ -38,6 +39,7 @@ public class EngineCodeAnalyzerAdapter implements CodeAnalyzer {
     public AnalysisEngineResult analyze(String normalizedJavaSource) {
         AnalysisResult result =
                 analyzerRegistry.analyze(new AnalysisInput(normalizedJavaSource));
+
         if (result.status() == AnalysisStatus.PARSE_FAILED) {
             return new AnalysisEngineResult(
                     ParseOutcome.FAILED,
@@ -63,6 +65,25 @@ public class EngineCodeAnalyzerAdapter implements CodeAnalyzer {
 
     private static AnalyzerFinding toContractFinding(Finding finding) {
         SourceLocation location = finding.location();
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        Map<String, Object> metadata = new LinkedHashMap<>();
+metadata.put("measuredValue", finding.measuredValue());
+metadata.put("threshold", finding.threshold());
+metadata.put("source", finding.source());
+
+// Maintainability and PMD findings should not affect complexity-v1 scoring.
+if (finding.ruleId().startsWith("MAINTAINABILITY_")
+        || "PMD".equalsIgnoreCase(finding.source())) {
+    metadata.put("scoringImpact", false);
+}
+
+
+       // Maintainability and PMD findings should not affect complexity-v1 scoring.
+if (finding.ruleId().startsWith("MAINTAINABILITY_")
+        || "PMD".equalsIgnoreCase(finding.source())) {
+    metadata.put("scoringImpact", false);
+}
         return new AnalyzerFinding(
                 finding.ruleId(),
                 fingerprint(finding.ruleId(), location),
@@ -75,15 +96,15 @@ public class EngineCodeAnalyzerAdapter implements CodeAnalyzer {
                 positiveOrNull(location.endLine()),
                 positiveOrNull(location.endColumn()),
                 null,
-                Map.of(
-                        "measuredValue", finding.measuredValue(),
-                        "threshold", finding.threshold()));
+                metadata);
     }
 
     private static AnalyzerMetric toContractMetric(Metric metric) {
         Map<String, Object> metadata =
                 new LinkedHashMap<>(locationMetadata(metric.location()));
+
         metadata.put("analyzerId", metric.analyzerId());
+
         return new AnalyzerMetric(
                 metric.analyzerId(),
                 metric.name(),
@@ -112,21 +133,27 @@ public class EngineCodeAnalyzerAdapter implements CodeAnalyzer {
             String message,
             SourceLocation location) {
         StringBuilder summary = new StringBuilder();
+
         if (location.sourceName() != null && !location.sourceName().isBlank()) {
             summary.append(location.sourceName());
         }
+
         if (location.startLine() > 0) {
             if (!summary.isEmpty()) {
                 summary.append(':');
             }
+
             summary.append(location.startLine());
+
             if (location.startColumn() > 0) {
                 summary.append(':').append(location.startColumn());
             }
         }
+
         if (!summary.isEmpty()) {
             summary.append(": ");
         }
+
         return summary.append(message).toString();
     }
 
@@ -143,9 +170,11 @@ public class EngineCodeAnalyzerAdapter implements CodeAnalyzer {
                 Integer.toString(location.startColumn()),
                 Integer.toString(location.endLine()),
                 Integer.toString(location.endColumn()));
+
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(
                     identity.getBytes(StandardCharsets.UTF_8));
+
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable.", exception);

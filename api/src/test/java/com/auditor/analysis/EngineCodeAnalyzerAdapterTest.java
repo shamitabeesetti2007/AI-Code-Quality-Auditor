@@ -55,6 +55,8 @@ class EngineCodeAnalyzerAdapterTest {
         assertTrue(finding.endColumn() > 0);
         assertEquals(2.0, finding.metadata().get("measuredValue"));
         assertEquals(1.0, finding.metadata().get("threshold"));
+        assertEquals("ENGINE", finding.metadata().get("source"));
+
         assertEquals(
                 expectedFingerprint(
                         finding.ruleId(),
