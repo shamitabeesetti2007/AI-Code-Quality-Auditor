@@ -1,26 +1,1303 @@
-﻿openapi: 3.0.3
+﻿
+openapi: 3.0.3
 info:
   title: AI Code Quality Auditor API
   version: 1.0.0
-  description: Initial API contract. Business endpoints will be defined before implementation.
+  description: >
+    API contract for authentication, submissions, and analysis-run persistence.
+
 servers:
   - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: Registration, login, refresh-token rotation, and logout.
+  - name: Users
+    description: Current-user profile and account information.
+  - name: Administration
+    description: Administrator-only account and role management.
+  - name: Submissions
+    description: Owner-scoped Java code submissions.
+  - name: Analysis
+    description: Queued analysis runs and persisted analyzer results.
+  - name: Operations
+    description: Application health and operational endpoints.
+
 paths:
+  /api/v1/csrf:
+    get:
+      security: []
+      tags: [Authentication]
+      operationId: getCsrfToken
+      summary: Provision a CSRF token
+      description: >
+        Returns the token and header name and sets a readable XSRF-TOKEN
+        cookie. Send the returned token in the X-XSRF-TOKEN header together
+        with the cookie on state-changing requests.
+      responses:
+        '200':
+          description: CSRF token provisioned
+          headers:
+            Set-Cookie:
+              description: Readable CSRF token cookie (not the refresh token)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfTokenResponse'
+
+  /api/v1/auth/register:
+    post:
+      security: []
+      tags: [Authentication]
+      operationId: registerUser
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/login:
+    post:
+      security: []
+      tags: [Authentication]
+      operationId: loginUser
+      summary: Authenticate and issue tokens
+      description: >
+        Sets the refresh_token HttpOnly cookie. The refresh token is never
+        included in the JSON response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              description: HttpOnly refresh-token cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid email or password
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshAccessToken
+      summary: Rotate refresh token and issue a new access token
+      description: >
+        Requires refresh_token and XSRF-TOKEN cookies, the X-XSRF-TOKEN
+        header, and a valid Origin. Rotates the refresh token atomically and sets a
+        replacement cookie. Refresh tokens are never included in JSON.
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+        - $ref: '#/components/parameters/OriginHeader'
+      security:
+        - refreshCookie: []
+          csrfCookie: []
+      responses:
+        '200':
+          description: Refresh successful
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly refresh-token cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logoutUser
+      summary: Revoke refresh token and clear cookie
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+        - $ref: '#/components/parameters/OriginHeader'
+      security:
+        - refreshCookie: []
+          csrfCookie: []
+      responses:
+        '204':
+          description: Logout successful; refresh cookie cleared
+          headers:
+            Set-Cookie:
+              description: Expired refresh-token cookie
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          description: Revocation failed; logout was unsuccessful and the refresh cookie was cleared
+          headers:
+            Set-Cookie:
+              description: Expired refresh-token cookie
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      summary: Get the authenticated user's profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/users/{userId}/role:
+    patch:
+      tags: [Administration]
+      operationId: changeUserRole
+      summary: Change a user's role
+      description: >
+        Requires an authenticated administrator, the XSRF-TOKEN cookie, and
+        the provisioned X-XSRF-TOKEN header. Rejects no-op changes,
+        administrator self-demotion, and
+        demotion of the last active administrator. Successful changes are
+        audited in the same transaction as the role update.
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-XSRF-TOKEN
+          in: header
+          required: true
+          description: Token returned by GET /api/v1/csrf.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleChangeRequest'
+      responses:
+        '200':
+          description: Role changed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/submissions:
+    post:
+      tags: [Submissions]
+      operationId: createSubmission
+      summary: Create a code submission
+      description: >
+        Normalizes a leading UTF-8 BOM and CRLF/CR line endings before hashing.
+        Client-supplied AI_REMEDIATED provenance is not allowed. The optional
+        autoAnalyze field defaults to true and creates a QUEUED run only.
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubmissionRequest'
+      responses:
+        '201':
+          description: Submission created; source code is not echoed
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedSubmission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    get:
+      tags: [Submissions]
+      operationId: listSubmissions
+      summary: List the caller's submissions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Source-free submission page, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/submissions/{submissionId}:
+    parameters:
+      - name: submissionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Submissions]
+      operationId: getSubmission
+      summary: Get an owned submission including its source
+      description: Returns source code with Cache-Control: no-store.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Owned submission detail
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Submissions]
+      operationId: updateSubmission
+      summary: Update an owned submission's title and source
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubmissionRequest'
+      responses:
+        '200':
+          description: Updated source-free submission summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+    delete:
+      tags: [Submissions]
+      operationId: deleteSubmission
+      summary: Delete an owned submission and its analysis data
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: Submission and dependent analysis data deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions/{submissionId}/analysis-runs:
+    parameters:
+      - name: submissionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Analysis]
+      operationId: createAnalysisRun
+      summary: Queue an analysis run for an owned submission
+      security:
+        - bearerAuth: []
+          csrfCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '201':
+          description: Analysis run created in QUEUED state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Analysis]
+      operationId: listAnalysisRuns
+      summary: Get paginated analysis history for an owned submission
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: Zero-based page index (default 0)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          description: Page size, from 1 to 100 (default 20)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Source-free analysis history ordered newest first, then run ID descending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/analysis-runs/{runId}:
+    get:
+      tags: [Analysis]
+      operationId: getAnalysisRun
+      summary: Get an owned analysis run and its metrics and findings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis run result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions/{submissionId}/analysis-runs/{runId}/report:
+    get:
+      tags: [Analysis]
+      operationId: getAnalysisRunReport
+      summary: Get the source-free report for a run on an owned submission
+      description: >
+        Metrics and finding counts describe persisted results only.
+        dataAvailability distinguishes complete, partial, and unavailable
+        analysis results. Error summaries are safe status-based text.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: submissionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Source-free analysis report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/submissions/{submissionId}/analysis-runs/compare:
+    get:
+      tags: [Analysis]
+      operationId: compareAnalysisRuns
+      summary: Compare two persisted runs for an owned submission
+      description: >
+        Score difference is target minus baseline and does not itself imply
+        improved code quality. Metrics match by dimension and metricKey.
+        Findings match by fingerprint; duplicate, null, or blank fingerprints
+        are treated as unmatched. Unavailable analysis results are not zeros.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: submissionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: baselineRunId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: targetRunId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Source-free analysis run comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunComparison'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /actuator/health:
     get:
-      summary: Check application health
+      security: []
+      tags: [Operations]
       operationId: getApplicationHealth
-      tags:
-        - Operations
+      summary: Check application health
       responses:
-        "200":
+        '200':
           description: Application health response
           content:
-            application/vnd.spring-boot.actuator.v3+json:
-              schema:
-                type: object
-                additionalProperties: true
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+    csrfCookie:
+      type: apiKey
+      in: cookie
+      name: XSRF-TOKEN
+
+  parameters:
+    CsrfHeader:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      description: Token returned by GET /api/v1/csrf.
+      schema:
+        type: string
+        example: 'provisioned-csrf-token'
+    OriginHeader:
+      name: Origin
+      in: header
+      required: true
+      description: Must match a configured allowed frontend origin.
+      schema:
+        type: string
+        format: uri
+
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+
+    CsrfTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [token, headerName]
+      properties:
+        token:
+          type: string
+          description: Send this value in the header named by headerName.
+        headerName:
+          type: string
+          enum: [X-XSRF-TOKEN]
+
+    RoleChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [USER, RESEARCHER, ADMIN]
+
+    CreateSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [title, language, originType, sourceCode]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        language:
+          type: string
+          enum: [JAVA]
+        originType:
+          type: string
+          enum: [HUMAN, AI_GENERATED, AI_ASSISTED]
+        sourceCode:
+          type: string
+          minLength: 1
+          description: Maximum 100,000 UTF-8 bytes after source normalization.
+        autoAnalyze:
+          type: boolean
+          default: true
+
+    UpdateSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [title, sourceCode]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        sourceCode:
+          type: string
+          minLength: 1
+          description: Maximum 100,000 UTF-8 bytes after source normalization.
+
+    Submission:
+      type: object
+      required:
+        - submissionId
+        - title
+        - language
+        - originType
+        - provenanceVerified
+        - contentHash
+        - logicalLoc
+        - createdAt
+        - updatedAt
+      properties:
+        submissionId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        language:
+          type: string
+          enum: [JAVA]
+        originType:
+          type: string
+          enum: [HUMAN, AI_GENERATED, AI_ASSISTED, AI_REMEDIATED]
+        provenanceVerified:
+          type: boolean
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        logicalLoc:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SubmissionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Submission'
+        - type: object
+          required: [sourceCode]
+          properties:
+            sourceCode:
+              type: string
+
+    SubmissionPage:
+      type: object
+      required: [items, page, size, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Submission'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    AnalysisRunHistoryPage:
+      type: object
+      required: [items, page, size, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisRunHistoryItem'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    AnalysisRunHistoryItem:
+      type: object
+      required: [runId, submissionId, status, createdAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        submissionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PARSING
+            - ANALYZING
+            - SCORING
+            - COMPLETED
+            - PARTIAL
+            - PARSE_FAILED
+            - FAILED
+        score:
+          type: number
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorSummary:
+          type: string
+          nullable: true
+          description: Generic status-based summary; never raw parser or analyzer details.
+
+    AnalysisReport:
+      type: object
+      required: [run, dataAvailability, metricsByDimension, findingsSummary, findings]
+      properties:
+        run:
+          $ref: '#/components/schemas/AnalysisReportRunOverview'
+        dataAvailability:
+          type: string
+          enum: [COMPLETE, PARTIAL, UNAVAILABLE]
+        metricsByDimension:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/AnalysisMetric'
+          description: Persisted metrics grouped by their stored dimension.
+        findingsSummary:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AnalysisReportFindingsSummary'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisFinding'
+
+    AnalysisReportRunOverview:
+      type: object
+      required: [runId, submissionId, status, createdAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        submissionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED, PARSING, ANALYZING, SCORING, COMPLETED, PARTIAL, PARSE_FAILED, FAILED]
+        score:
+          type: number
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorSummary:
+          type: string
+          nullable: true
+
+    AnalysisReportFindingsSummary:
+      type: object
+      required: [totalCount, countsBySeverity, unclassifiedSeverityCount]
+      properties:
+        totalCount:
+          type: integer
+          format: int64
+          description: Number of persisted findings, not a claim of complete coverage.
+        countsBySeverity:
+          type: object
+          required: [INFO, LOW, MEDIUM, HIGH, CRITICAL]
+          properties:
+            INFO:
+              type: integer
+              format: int64
+            LOW:
+              type: integer
+              format: int64
+            MEDIUM:
+              type: integer
+              format: int64
+            HIGH:
+              type: integer
+              format: int64
+            CRITICAL:
+              type: integer
+              format: int64
+        unclassifiedSeverityCount:
+          type: integer
+          format: int64
+
+    AnalysisRunComparison:
+      type: object
+      required: [submissionId, baseline, target, scoreDifference, comparisonAvailability, metrics, findings]
+      properties:
+        submissionId: { type: string, format: uuid }
+        baseline: { $ref: '#/components/schemas/ComparisonRunOverview' }
+        target: { $ref: '#/components/schemas/ComparisonRunOverview' }
+        scoreDifference:
+          type: number
+          nullable: true
+          description: Target score minus baseline score; null when either score is unavailable.
+        comparisonAvailability:
+          type: string
+          enum: [COMPLETE, PARTIAL]
+        metrics: { $ref: '#/components/schemas/ComparisonMetrics' }
+        findings: { $ref: '#/components/schemas/ComparisonFindings' }
+
+    ComparisonRunOverview:
+      type: object
+      required: [runId, status, dataAvailability]
+      properties:
+        runId: { type: string, format: uuid }
+        status: { type: string, enum: [QUEUED, PARSING, ANALYZING, SCORING, COMPLETED, PARTIAL, PARSE_FAILED, FAILED] }
+        score: { type: number, nullable: true }
+        grade: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        dataAvailability: { type: string, enum: [COMPLETE, PARTIAL, UNAVAILABLE] }
+
+    ComparisonMetrics:
+      type: object
+      required: [dataAvailability, items]
+      properties:
+        dataAvailability: { type: string, enum: [COMPLETE, PARTIAL, UNAVAILABLE] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [dimension, metricKey, change]
+            properties:
+              dimension: { type: string }
+              metricKey: { type: string }
+              baselineValue: { type: number, nullable: true }
+              targetValue: { type: number, nullable: true }
+              difference: { type: number, nullable: true }
+              change: { type: string, enum: [ADDED, REMOVED, RETAINED] }
+
+    ComparisonFindings:
+      type: object
+      required: [dataAvailability, items, counts, countsBySeverity, unclassifiedSeverityCounts]
+      properties:
+        dataAvailability: { type: string, enum: [COMPLETE, PARTIAL, UNAVAILABLE] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [change, ruleId, message]
+            properties:
+              change: { type: string, enum: [ADDED, RESOLVED, PERSISTING] }
+              ruleId: { type: string }
+              fingerprint: { type: string, nullable: true }
+              message: { type: string }
+              severity: { type: string, nullable: true, enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL] }
+              filePath: { type: string, nullable: true }
+              startLine: { type: integer, nullable: true }
+              startColumn: { type: integer, nullable: true }
+              endLine: { type: integer, nullable: true }
+              endColumn: { type: integer, nullable: true }
+        counts:
+          type: object
+          nullable: true
+          description: Null when either run lacks usable comparison data.
+          additionalProperties: { type: integer, format: int64 }
+        countsBySeverity:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer, format: int64 }
+        unclassifiedSeverityCounts:
+          type: object
+          nullable: true
+          description: Counts of findings with null severity, keyed by change type.
+          additionalProperties: { type: integer, format: int64 }
+
+    CreatedSubmission:
+      type: object
+      required: [submission, autoAnalysisRun]
+      properties:
+        submission:
+          $ref: '#/components/schemas/Submission'
+        autoAnalysisRun:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AnalysisRun'
+
+    AnalysisRun:
+      type: object
+      required: [runId, submissionId, status, createdAt]
+      properties:
+        runId:
+          type: string
+          format: uuid
+        submissionId:
+          type: string
+          format: uuid
+        sourceHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+          description: SHA-256 hash of the immutable source snapshot analyzed.
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PARSING
+            - ANALYZING
+            - SCORING
+            - COMPLETED
+            - PARTIAL
+            - PARSE_FAILED
+            - FAILED
+        analyzerVersion:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        errorSummary:
+          type: string
+          nullable: true
+          description: Generic status-based summary; never raw parser or analyzer details.
+
+    AnalysisRunDetail:
+      type: object
+      required: [run, metrics, findings]
+      properties:
+        run:
+          $ref: '#/components/schemas/AnalysisRun'
+        score:
+          type: number
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisMetric'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisFinding'
+
+    AnalysisMetric:
+      type: object
+      required: [metricId, dimension, metricKey, numericValue, metadata]
+      properties:
+        metricId:
+          type: string
+          format: uuid
+        dimension:
+          type: string
+        metricKey:
+          type: string
+        numericValue:
+          type: number
+        metadata:
+          type: object
+          description: Sanitized analyzer fields only; arbitrary analyzer metadata is omitted.
+          additionalProperties: false
+          properties:
+            analyzerId: { type: string }
+            sourceName: { type: string, description: Safe basename only. }
+            startLine: { type: integer }
+            startColumn: { type: integer }
+            endLine: { type: integer }
+            endColumn: { type: integer }
+            aggregation: { type: string, enum: [maximum] }
+            numericValue: { type: number }
+            observations:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  sourceName: { type: string }
+                  startLine: { type: integer }
+                  startColumn: { type: integer }
+                  endLine: { type: integer }
+                  endColumn: { type: integer }
+                  numericValue: { type: number }
+
+    AnalysisFinding:
+      type: object
+      required: [findingId, ruleId, fingerprint, message, metadata]
+      properties:
+        findingId:
+          type: string
+          format: uuid
+        ruleId:
+          type: string
+        fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        severity:
+          type: string
+          enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL]
+          nullable: true
+        message:
+          type: string
+        description:
+          type: string
+          nullable: true
+        filePath:
+          type: string
+          nullable: true
+        startLine:
+          type: integer
+          nullable: true
+        startColumn:
+          type: integer
+          nullable: true
+        endLine:
+          type: integer
+          nullable: true
+        endColumn:
+          type: integer
+          nullable: true
+        cweId:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          description: Sanitized scoring inputs only; arbitrary analyzer metadata is omitted.
+          additionalProperties: false
+          properties:
+            measuredValue: { type: number }
+            threshold: { type: number }
+
+    UserProfile:
+      type: object
+      additionalProperties: false
+      required: [id, email, displayName, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [USER, RESEARCHER, ADMIN]
+
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived JWT access token.
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Access-token lifetime in seconds.
+          example: 900
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+      required: [type, title, status]
+
+  responses:
+    BadRequest:
+      description: Invalid request or validation failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Authentication is missing or invalid
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Request rejected by security policy
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Request conflicts with the current resource state
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: Source code exceeds the UTF-8 byte limit
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unprocessable:
+      description: Unsupported language, origin, or clearly non-Java source
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Request rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
